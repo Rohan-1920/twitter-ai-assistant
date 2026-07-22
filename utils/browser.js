@@ -1,14 +1,13 @@
 const path = require("path");
-const fs = require("fs");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH && process.platform === "win32") {
-  process.env.PLAYWRIGHT_BROWSERS_PATH = "D:\\playwright-browsers";
-}
-
 const { chromium } = require("playwright");
 const { config } = require("./config");
+const {
+  sanitizePlaywrightEnv,
+  getChromiumLaunchOptions,
+} = require("./playwright-env");
 const {
   ensureStorageDir,
   syncStorageStateFromEnv,
@@ -19,11 +18,14 @@ const {
   STORAGE_STATE_PATH,
 } = require("./session");
 
+// Must run before any chromium.launch() — clears invalid Windows paths on Render.
+sanitizePlaywrightEnv();
+
 const DEFAULT_TIMEOUT = Number(process.env.PLAYWRIGHT_TIMEOUT_MS) || 45000;
 
 /**
  * Launch Chromium with saved session. Headless by default (Render-safe).
- * Loads storage/storageState.json — never logs in per request.
+ * Uses Playwright bundled Chromium — no executablePath.
  */
 async function launchBrowser() {
   ensureStorageDir();
@@ -32,16 +34,9 @@ async function launchBrowser() {
 
   const headless = process.env.HEADLESS !== "false";
 
-  const browser = await chromium.launch({
-    headless,
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-    ],
-  });
+  const browser = await chromium.launch(
+    getChromiumLaunchOptions({ headless })
+  );
 
   const contextOptions = {
     viewport: { width: 1280, height: 900 },
@@ -88,15 +83,9 @@ async function closeBrowser(browser) {
 async function loginAndSaveSession() {
   ensureStorageDir();
 
-  const browser = await chromium.launch({
-    headless: false,
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--disable-infobars",
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-    ],
-  });
+  const browser = await chromium.launch(
+    getChromiumLaunchOptions({ headless: false })
+  );
 
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },

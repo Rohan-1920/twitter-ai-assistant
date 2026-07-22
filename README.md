@@ -99,11 +99,15 @@ npm install
 
 ### Step 2 — Install Chromium Browser
 
+Chromium installs automatically on `npm install` via `postinstall`.
+
+To install manually:
+
 ```bash
 npm run setup:browser
 ```
 
-On Windows this installs to `D:\playwright-browsers` by default.
+Playwright uses its **bundled Chromium** from the default cache — no custom paths needed.
 
 ### Step 3 — Environment File
 
