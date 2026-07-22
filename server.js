@@ -4,6 +4,7 @@ require("dotenv").config();
 
 // Strip PLAYWRIGHT_BROWSERS_PATH before any Playwright import on Render.
 require("./utils/playwright-env");
+const { isChromiumInstalled, getProjectBrowsersPath } = require("./utils/playwright-env");
 
 const twitterRoutes = require("./routes/twitter.routes");
 const { syncStorageStateFromEnv, hasStorageState, getSessionSource } = require("./utils/browser");
@@ -83,6 +84,10 @@ const PORT = config.port;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Twitter AI Backend running on port ${PORT}`);
   console.log(`Session loaded: ${hasStorageState()} (source: ${getSessionSource()})`);
+  console.log(`Chromium ready: ${isChromiumInstalled()}`);
+  if (process.env.RENDER) {
+    console.log(`Browser path: ${getProjectBrowsersPath()}`);
+  }
   console.log(`Reply monitor: ${config.replyMonitorEnabled ? "enabled" : "disabled"}`);
   console.log(`Check interval: ${config.checkIntervalMs}ms`);
 

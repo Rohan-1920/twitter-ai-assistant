@@ -1,34 +1,64 @@
 /**
- * Playwright environment helpers — Render/Linux safe, no hardcoded paths.
+ * Playwright environment — Render/Linux installs browsers inside the project
+ * so they are included in the deployed slug (Render cache is not available at runtime).
  */
+const path = require("path");
+const fs = require("fs");
+
+const PROJECT_BROWSERS_DIR = path.join(__dirname, "..", ".playwright-browsers");
 
 function isLinuxOrRender() {
   return process.platform === "linux" || Boolean(process.env.RENDER);
 }
 
-/**
- * Always use Playwright bundled Chromium from the default cache.
- * Strips PLAYWRIGHT_BROWSERS_PATH if set (e.g. old D:\playwright-browsers on Render).
- */
-function sanitizePlaywrightEnv() {
-  const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  if (!browsersPath) return false;
+function getProjectBrowsersPath() {
+  return PROJECT_BROWSERS_DIR;
+}
 
-  console.warn(
-    `[playwright] Ignoring PLAYWRIGHT_BROWSERS_PATH — using bundled Chromium: ${browsersPath}`
-  );
-  delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-  return true;
+/**
+ * Configure PLAYWRIGHT_BROWSERS_PATH before require("playwright").
+ *
+ * Render/Linux → project/.playwright-browsers (bundled with deploy)
+ * Windows local  → default Playwright cache (strip bad D:\ paths from .env)
+ */
+function configurePlaywrightEnv() {
+  if (isLinuxOrRender()) {
+    fs.mkdirSync(PROJECT_BROWSERS_DIR, { recursive: true });
+    process.env.PLAYWRIGHT_BROWSERS_PATH = PROJECT_BROWSERS_DIR;
+    console.log(
+      `[playwright] Browser path (linux/render): ${PROJECT_BROWSERS_DIR}`
+    );
+    return;
+  }
+
+  const existing = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (existing && (/^[A-Za-z]:[\\/]/.test(existing) || existing.includes("\\"))) {
+    console.warn(
+      `[playwright] Ignoring invalid PLAYWRIGHT_BROWSERS_PATH: ${existing}`
+    );
+    delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+  }
+}
+
+/**
+ * Check whether Chromium binary exists for the current Playwright install.
+ */
+function isChromiumInstalled() {
+  try {
+    const { chromium } = require("playwright");
+    const execPath = chromium.executablePath();
+    return Boolean(execPath && fs.existsSync(execPath));
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Standard Chromium launch options — never sets executablePath.
- * @param {{ headless?: boolean }} options
  */
 function getChromiumLaunchOptions({ headless = true } = {}) {
   const launchOptions = { headless };
 
-  // Required on Render/Linux containers
   if (isLinuxOrRender()) {
     launchOptions.args = [
       "--no-sandbox",
@@ -40,11 +70,13 @@ function getChromiumLaunchOptions({ headless = true } = {}) {
   return launchOptions;
 }
 
-// Run immediately on import — MUST happen before require("playwright").
-sanitizePlaywrightEnv();
+// MUST run before require("playwright") anywhere in the app.
+configurePlaywrightEnv();
 
 module.exports = {
   isLinuxOrRender,
-  sanitizePlaywrightEnv,
+  getProjectBrowsersPath,
+  configurePlaywrightEnv,
+  isChromiumInstalled,
   getChromiumLaunchOptions,
 };

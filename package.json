@@ -4,7 +4,7 @@
   "description": "Production-ready backend connecting n8n, OpenAI, and Playwright for Twitter/X automation",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node scripts/ensure-browser.js && node server.js",
     "login": "node scripts/login.js",
     "export-session": "node scripts/export-session.js",
     "postinstall": "node scripts/install-playwright.js",
