@@ -3,74 +3,36 @@ const fs = require("fs");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-// Local Windows default only — never force a D: path on Render/Linux.
 if (!process.env.PLAYWRIGHT_BROWSERS_PATH && process.platform === "win32") {
   process.env.PLAYWRIGHT_BROWSERS_PATH = "D:\\playwright-browsers";
 }
 
 const { chromium } = require("playwright");
 const { config } = require("./config");
+const {
+  ensureStorageDir,
+  syncStorageStateFromEnv,
+  migrateLegacySession,
+  hasStorageState,
+  getStorageStatePath,
+  getSessionSource,
+  STORAGE_STATE_PATH,
+} = require("./session");
 
-const STORAGE_DIR = path.join(__dirname, "..", "storage");
-const STORAGE_STATE_PATH = path.join(STORAGE_DIR, "storageState.json");
 const DEFAULT_TIMEOUT = Number(process.env.PLAYWRIGHT_TIMEOUT_MS) || 45000;
-
-function ensureStorageDir() {
-  if (!fs.existsSync(STORAGE_DIR)) {
-    fs.mkdirSync(STORAGE_DIR, { recursive: true });
-  }
-}
-
-/**
- * If STORAGE_STATE_JSON is set (Render secret), materialize storage/storageState.json.
- * Prefer file on disk when already present.
- */
-function syncStorageStateFromEnv() {
-  const raw = process.env.STORAGE_STATE_JSON;
-  if (!raw || !raw.trim()) return;
-
-  ensureStorageDir();
-
-  try {
-    const parsed = JSON.parse(raw);
-    fs.writeFileSync(STORAGE_STATE_PATH, JSON.stringify(parsed, null, 2), "utf8");
-  } catch (err) {
-    throw new Error(
-      "STORAGE_STATE_JSON is invalid JSON. Paste the full storageState.json contents."
-    );
-  }
-}
-
-/** Migrate legacy auth/storageState.json → storage/storageState.json */
-function migrateLegacySession() {
-  const legacyPath = path.join(__dirname, "..", "auth", "storageState.json");
-  if (!fs.existsSync(STORAGE_STATE_PATH) && fs.existsSync(legacyPath)) {
-    ensureStorageDir();
-    fs.copyFileSync(legacyPath, STORAGE_STATE_PATH);
-  }
-}
-
-function hasStorageState() {
-  syncStorageStateFromEnv();
-  migrateLegacySession();
-  return fs.existsSync(STORAGE_STATE_PATH);
-}
-
-function getStorageStatePath() {
-  return STORAGE_STATE_PATH;
-}
 
 /**
  * Launch Chromium with saved session. Headless by default (Render-safe).
- * Does not perform login — uses storage/storageState.json only.
+ * Loads storage/storageState.json — never logs in per request.
  */
 async function launchBrowser() {
   ensureStorageDir();
   syncStorageStateFromEnv();
+  migrateLegacySession();
 
   const headless = process.env.HEADLESS !== "false";
 
-  const launchOptions = {
+  const browser = await chromium.launch({
     headless,
     args: [
       "--disable-blink-features=AutomationControlled",
@@ -79,9 +41,7 @@ async function launchBrowser() {
       "--disable-dev-shm-usage",
       "--disable-gpu",
     ],
-  };
-
-  const browser = await chromium.launch(launchOptions);
+  });
 
   const contextOptions = {
     viewport: { width: 1280, height: 900 },
@@ -116,16 +76,14 @@ async function closeBrowser(browser) {
     try {
       await browser.close();
     } catch {
-      // Already closed / crashed
+      // Already closed
     }
   }
 }
 
 /**
- * One-time manual login → storage/storageState.json
- * Run via: npm run login
- *
- * For Render: copy file contents into STORAGE_STATE_JSON env var.
+ * Manual login → storage/storageState.json
+ * Run once locally: npm run login
  */
 async function loginAndSaveSession() {
   ensureStorageDir();
@@ -154,18 +112,21 @@ async function loginAndSaveSession() {
   const page = await context.newPage();
 
   try {
-    console.log("Opening Twitter login page...");
-    console.log("Please log in manually in the browser window (CAPTCHA / 2FA supported).");
+    console.log("Launching Chromium (headed mode)...");
+    console.log("Opening https://x.com/login");
+    console.log("Log in manually in the browser (CAPTCHA / 2FA supported).");
 
-    await page.goto(`${config.twitterUrl}/login`, {
+    await page.goto("https://x.com/login", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
 
-    console.log("Waiting for login to complete (up to 5 minutes)...");
+    console.log("Waiting for https://x.com/home (up to 5 minutes)...");
 
     await page.waitForURL(
-      (url) => url.hostname.includes("x.com") && url.pathname.includes("/home"),
+      (url) =>
+        (url.hostname === "x.com" || url.hostname === "twitter.com") &&
+        url.pathname.startsWith("/home"),
       { timeout: 300000 }
     );
 
@@ -178,7 +139,11 @@ async function loginAndSaveSession() {
 
     console.log("Twitter session saved successfully.");
     console.log(`Saved to: ${STORAGE_STATE_PATH}`);
-    console.log("For Render: copy this file into env var STORAGE_STATE_JSON");
+    console.log("");
+    console.log("Render deploy:");
+    console.log("  1. Copy storage/storageState.json contents into STORAGE_STATE_JSON");
+    console.log("  OR run: node scripts/export-session.js");
+    console.log("  2. Paste output into Render env var STORAGE_STATE_BASE64");
   } finally {
     await browser.close();
   }
@@ -190,6 +155,7 @@ module.exports = {
   loginAndSaveSession,
   hasStorageState,
   getStorageStatePath,
+  getSessionSource,
   syncStorageStateFromEnv,
   DEFAULT_TIMEOUT,
 };

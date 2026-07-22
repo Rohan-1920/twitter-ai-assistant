@@ -12,3 +12,5 @@ services:
         value: "20"
       - key: STORAGE_STATE_JSON
         sync: false
+      - key: STORAGE_STATE_BASE64
+        sync: false

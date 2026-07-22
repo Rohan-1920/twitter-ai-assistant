@@ -3,7 +3,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const twitterRoutes = require("./routes/twitter.routes");
-const { syncStorageStateFromEnv, hasStorageState } = require("./utils/browser");
+const { syncStorageStateFromEnv, hasStorageState, getSessionSource } = require("./utils/browser");
 const { config } = require("./utils/config");
 const replyMonitorService = require("./services/replyMonitor.service");
 const queueService = require("./services/queue.service");
@@ -79,7 +79,7 @@ const PORT = config.port;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Twitter AI Backend running on port ${PORT}`);
-  console.log(`Session loaded: ${hasStorageState()}`);
+  console.log(`Session loaded: ${hasStorageState()} (source: ${getSessionSource()})`);
   console.log(`Reply monitor: ${config.replyMonitorEnabled ? "enabled" : "disabled"}`);
   console.log(`Check interval: ${config.checkIntervalMs}ms`);
 

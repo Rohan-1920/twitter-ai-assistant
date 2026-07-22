@@ -4,6 +4,10 @@ const {
   hasStorageState,
   DEFAULT_TIMEOUT,
 } = require("../utils/browser");
+const {
+  SESSION_EXPIRED_MESSAGE,
+  NO_SESSION_MESSAGE,
+} = require("../utils/session");
 const { AppError, ERROR_CODES } = require("../utils/errors");
 const { config } = require("../utils/config");
 const { log } = require("../utils/logger");
@@ -44,7 +48,7 @@ function assertSessionValid(page) {
   ) {
     throw new AppError(
       ERROR_CODES.SESSION_EXPIRED,
-      "Session expired. Refresh storageState.json / STORAGE_STATE_JSON and redeploy.",
+      SESSION_EXPIRED_MESSAGE,
       401
     );
   }
@@ -673,7 +677,7 @@ function classifyError(error) {
   if (lower.includes("session expired") || lower.includes("/login")) {
     return new AppError(
       ERROR_CODES.SESSION_EXPIRED,
-      "Session expired. Refresh storageState.json / STORAGE_STATE_JSON.",
+      SESSION_EXPIRED_MESSAGE,
       401
     );
   }
@@ -688,7 +692,7 @@ async function executeTask(task, payload) {
   if (!hasStorageState()) {
     throw new AppError(
       ERROR_CODES.NO_SESSION,
-      "No Twitter session found.",
+      NO_SESSION_MESSAGE,
       401
     );
   }
