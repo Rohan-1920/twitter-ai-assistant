@@ -6,7 +6,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 require("./playwright-env");
 
 const { chromium } = require("playwright");
-const { isLinuxOrRender } = require("../utils/playwright-env");
+const { isLinuxOrRender, getChromiumLaunchOptions } = require("./playwright-env");
 const {
   ensureStorageDir,
   syncStorageStateFromEnv,
