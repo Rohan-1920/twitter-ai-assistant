@@ -1,0 +1,10 @@
+node_modules/
+.env
+auth/storageState.json
+logs/*.log
+logs/*
+!logs/.gitkeep
+playwright-report/
+test-results/
+.DS_Store
+*.log

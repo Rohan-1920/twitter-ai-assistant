@@ -1,0 +1,21 @@
+{
+  "name": "twitter-ai-agent",
+  "version": "1.0.0",
+  "description": "Production-ready backend connecting n8n, OpenAI, and Playwright for Twitter/X automation",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "login": "node scripts/login.js",
+    "setup:browser": "node scripts/setup-browser.js"
+  },
+  "keywords": ["twitter", "automation", "playwright", "n8n", "openai"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "playwright": "^1.61.1"
+  }
+}
