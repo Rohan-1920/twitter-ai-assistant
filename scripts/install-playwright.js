@@ -2,6 +2,9 @@
  * Install Playwright Chromium using the default bundled browser cache.
  * Linux/Render: installs system deps via --with-deps.
  */
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
+require("../utils/playwright-env");
+
 const { spawnSync } = require("child_process");
 const { isLinuxOrRender } = require("../utils/playwright-env");
 

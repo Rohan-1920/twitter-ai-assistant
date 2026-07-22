@@ -2,10 +2,11 @@ const path = require("path");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
+// MUST load before playwright — strips invalid PLAYWRIGHT_BROWSERS_PATH on Render.
+require("./playwright-env");
+
 const { chromium } = require("playwright");
-const { config } = require("./config");
 const {
-  sanitizePlaywrightEnv,
   getChromiumLaunchOptions,
 } = require("./playwright-env");
 const {
@@ -17,9 +18,6 @@ const {
   getSessionSource,
   STORAGE_STATE_PATH,
 } = require("./session");
-
-// Must run before any chromium.launch() — clears invalid Windows paths on Render.
-sanitizePlaywrightEnv();
 
 const DEFAULT_TIMEOUT = Number(process.env.PLAYWRIGHT_TIMEOUT_MS) || 45000;
 

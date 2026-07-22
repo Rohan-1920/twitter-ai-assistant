@@ -12,12 +12,13 @@ function isLinuxOrRender() {
  */
 function sanitizePlaywrightEnv() {
   const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  if (!browsersPath) return;
+  if (!browsersPath) return false;
 
   console.warn(
     `[playwright] Ignoring PLAYWRIGHT_BROWSERS_PATH — using bundled Chromium: ${browsersPath}`
   );
   delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+  return true;
 }
 
 /**
@@ -38,6 +39,9 @@ function getChromiumLaunchOptions({ headless = true } = {}) {
 
   return launchOptions;
 }
+
+// Run immediately on import — MUST happen before require("playwright").
+sanitizePlaywrightEnv();
 
 module.exports = {
   isLinuxOrRender,

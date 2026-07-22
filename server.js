@@ -2,6 +2,9 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
+// Strip PLAYWRIGHT_BROWSERS_PATH before any Playwright import on Render.
+require("./utils/playwright-env");
+
 const twitterRoutes = require("./routes/twitter.routes");
 const { syncStorageStateFromEnv, hasStorageState, getSessionSource } = require("./utils/browser");
 const { config } = require("./utils/config");
