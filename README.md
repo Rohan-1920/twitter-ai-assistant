@@ -221,6 +221,7 @@ Max 280 characters. No hashtags unless natural.
 | **URL** | `http://localhost:3000/api/twitter/action` |
 | **Authentication** | None |
 | **Body Content Type** | JSON |
+| **Timeout** | **`180000` ms (3 minutes)** — required for Render + Playwright |
 | **Body** | see below |
 
 ```json
@@ -232,6 +233,10 @@ Max 280 characters. No hashtags unless natural.
 ```
 
 > Adjust `content` expression to match your OpenAI node output field.
+
+> **Important:** Default n8n timeout is 30 seconds. Playwright tweet posting on Render often takes **60–120 seconds** (browser launch + Twitter load + post). Set timeout to **180000** or the workflow will fail with `timeout of 30000ms exceeded` even if the tweet eventually posts.
+
+> **Render cold start:** Add an optional HTTP Request node before posting: `GET https://your-app.onrender.com/health` to wake the server first.
 
 #### Node 4 (Optional): IF / Error Handler
 
@@ -496,6 +501,20 @@ npm run login
 ```
 
 If on Render, also run `npm run export-session` and update `STORAGE_STATE_BASE64`.
+
+### `timeout of 30000ms exceeded` in n8n
+
+This is **n8n's HTTP timeout**, not a backend crash. Playwright on Render needs more time.
+
+**Fix in n8n HTTP Request node:**
+- Open **Options** → **Timeout**
+- Set to **`180000`** (3 minutes)
+
+Also wake Render before posting (optional):
+```
+GET https://your-app.onrender.com/health
+```
+then run the CREATE_POST request.
 
 ### n8n cannot reach localhost
 

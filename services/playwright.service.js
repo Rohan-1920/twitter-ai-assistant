@@ -11,14 +11,18 @@ const {
 const { AppError, ERROR_CODES } = require("../utils/errors");
 const { config } = require("../utils/config");
 const { log } = require("../utils/logger");
+const { isLinuxOrRender } = require("../utils/playwright-env");
 
 const TWITTER_HOME = config.twitterHome;
+const RENDER_TIMEOUT = 60000;
 
 /**
  * Wait for first matching visible selector.
  */
 async function waitForSelector(page, selectors, options = {}) {
-  const timeout = options.timeout || DEFAULT_TIMEOUT;
+  const timeout =
+    options.timeout ||
+    (isLinuxOrRender() ? RENDER_TIMEOUT : DEFAULT_TIMEOUT);
   const perSelector = Math.max(2500, Math.floor(timeout / selectors.length));
 
   for (const selector of selectors) {
@@ -113,8 +117,32 @@ async function navigateTo(page, url) {
   }
 
   await page.waitForLoadState("domcontentloaded");
+  if (isLinuxOrRender()) {
+    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+  }
   assertSessionValid(page);
+  await dismissOverlays(page);
   await detectRateLimit(page);
+}
+
+/** Dismiss cookie / overlay dialogs that block the composer on headless Render. */
+async function dismissOverlays(page) {
+  const selectors = [
+    'button:has-text("Accept all cookies")',
+    'button:has-text("Accept all")',
+    'button:has-text("Refuse non-essential")',
+    '[data-testid="app-bar-close"]',
+    '[aria-label="Close"]',
+  ];
+
+  for (const selector of selectors) {
+    const btn = page.locator(selector).first();
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click().catch(() => {});
+      await page.waitForTimeout(800);
+    }
+  }
 }
 
 /**
@@ -257,7 +285,7 @@ async function clickPostButton(page) {
     throw err;
   }
 
-  const deadline = Date.now() + 12000;
+  const deadline = Date.now() + (isLinuxOrRender() ? 20000 : 12000);
   while (Date.now() < deadline) {
     const ariaDisabled = await submitButton.getAttribute("aria-disabled");
     const disabled = await submitButton.isDisabled().catch(() => false);
@@ -419,7 +447,19 @@ async function waitForPostSuccess(page) {
 /** CREATE_POST — fully automated publish using saved session. */
 async function createPost(page, content) {
   await navigateTo(page, TWITTER_HOME);
-  await openComposer(page);
+
+  try {
+    await openComposer(page);
+  } catch (err) {
+    log({
+      event: "COMPOSER_FALLBACK",
+      message: "Home composer failed, trying /compose/post",
+      error: err.message,
+    });
+    await navigateTo(page, `${config.twitterUrl}/compose/post`);
+    await dismissOverlays(page);
+  }
+
   await pasteIntoTextarea(page, content);
   await clickPostButton(page);
   return waitForPostSuccess(page);
