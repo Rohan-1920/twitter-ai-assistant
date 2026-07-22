@@ -22,12 +22,19 @@ function formatEntry(entry) {
 }
 
 /**
- * Append a structured log entry to the daily log file.
+ * Append a structured log entry to the daily log file + console.
  */
 function log(entry) {
   ensureLogsDir();
   const line = formatEntry(entry);
   fs.appendFileSync(getLogFilePath(), line + "\n", "utf8");
+
+  const event = entry.event || entry.task || "LOG";
+  if (entry.error) {
+    console.error(`[${event}]`, entry.error, entry.code || "");
+  } else {
+    console.log(`[${event}]`, line);
+  }
 }
 
 /**
@@ -35,6 +42,7 @@ function log(entry) {
  */
 function logRequest({ task, success, executionTimeMs, error = null }) {
   log({
+    event: success ? "API_SUCCESS" : "API_ERROR",
     task,
     success,
     executionTimeMs,

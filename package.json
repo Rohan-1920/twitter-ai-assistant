@@ -6,12 +6,16 @@
   "scripts": {
     "start": "node server.js",
     "login": "node scripts/login.js",
+    "build": "npx playwright install chromium",
     "setup:browser": "node scripts/setup-browser.js"
   },
   "keywords": ["twitter", "automation", "playwright", "n8n", "openai"],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

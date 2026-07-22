@@ -1,17 +1,18 @@
-require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
+const path = require("path");
+const fs = require("fs");
 
-// Force Playwright browsers onto D: (never default C: cache)
-process.env.PLAYWRIGHT_BROWSERS_PATH =
-  process.env.PLAYWRIGHT_BROWSERS_PATH || "D:\\playwright-browsers";
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+
+// Local Windows default only — never force a D: path on Render/Linux.
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH && process.platform === "win32") {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "D:\\playwright-browsers";
+}
 
 const { chromium } = require("playwright");
-const fs = require("fs");
-const path = require("path");
 
 const AUTH_DIR = path.join(__dirname, "..", "auth");
 const STORAGE_STATE_PATH = path.join(AUTH_DIR, "storageState.json");
-
-const DEFAULT_TIMEOUT = 30000;
+const DEFAULT_TIMEOUT = Number(process.env.PLAYWRIGHT_TIMEOUT_MS) || 45000;
 
 function ensureAuthDir() {
   if (!fs.existsSync(AUTH_DIR)) {
@@ -19,7 +20,28 @@ function ensureAuthDir() {
   }
 }
 
+/**
+ * If STORAGE_STATE_JSON is set (Render secret), materialize auth/storageState.json.
+ * Prefer file on disk when already present.
+ */
+function syncStorageStateFromEnv() {
+  const raw = process.env.STORAGE_STATE_JSON;
+  if (!raw || !raw.trim()) return;
+
+  ensureAuthDir();
+
+  try {
+    const parsed = JSON.parse(raw);
+    fs.writeFileSync(STORAGE_STATE_PATH, JSON.stringify(parsed, null, 2), "utf8");
+  } catch (err) {
+    throw new Error(
+      "STORAGE_STATE_JSON is invalid JSON. Paste the full storageState.json contents."
+    );
+  }
+}
+
 function hasStorageState() {
+  syncStorageStateFromEnv();
   return fs.existsSync(STORAGE_STATE_PATH);
 }
 
@@ -28,24 +50,33 @@ function getStorageStatePath() {
 }
 
 /**
- * Launch Chromium with saved session state when available.
+ * Launch Chromium with saved session. Headless by default (Render-safe).
+ * Does not perform login — uses storageState.json only.
  */
 async function launchBrowser() {
   ensureAuthDir();
+  syncStorageStateFromEnv();
 
   const headless = process.env.HEADLESS !== "false";
 
   const launchOptions = {
     headless,
-    args: ["--disable-blink-features=AutomationControlled"],
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+    ],
   };
 
   const browser = await chromium.launch(launchOptions);
 
   const contextOptions = {
     viewport: { width: 1280, height: 900 },
+    locale: "en-US",
     userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   };
 
   if (hasStorageState()) {
@@ -56,27 +87,29 @@ async function launchBrowser() {
   context.setDefaultTimeout(DEFAULT_TIMEOUT);
   context.setDefaultNavigationTimeout(DEFAULT_TIMEOUT);
 
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "https://x.com",
+  });
+
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+  });
+
   const page = await context.newPage();
 
   return { browser, context, page };
 }
 
-/**
- * Safely close browser and all contexts.
- */
 async function closeBrowser(browser) {
   if (browser) {
     try {
       await browser.close();
     } catch {
-      // Browser may already be closed
+      // Already closed / crashed
     }
   }
 }
 
-/**
- * Find the first visible locator from a list of selectors.
- */
 async function firstVisible(page, selectors, timeout = DEFAULT_TIMEOUT) {
   const deadline = Date.now() + timeout;
 
@@ -87,15 +120,12 @@ async function firstVisible(page, selectors, timeout = DEFAULT_TIMEOUT) {
         return locator;
       }
     }
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(400);
   }
 
   throw new Error(`No visible element for: ${selectors.join(" | ")}`);
 }
 
-/**
- * Click Next / continue button when present.
- */
 async function clickNext(page) {
   const next = page
     .locator(
@@ -109,11 +139,8 @@ async function clickNext(page) {
 }
 
 /**
- * Perform initial Twitter login and persist session to storageState.json.
- * Run once via: npm run login
- *
- * If auto-login fails (CAPTCHA / unusual activity), keep the browser open
- * so you can finish login manually — session is still saved afterward.
+ * One-time local login → auth/storageState.json
+ * For Render: upload that file content as STORAGE_STATE_JSON env var.
  */
 async function loginAndSaveSession() {
   const email = process.env.TWITTER_EMAIL;
@@ -121,9 +148,7 @@ async function loginAndSaveSession() {
   const password = process.env.TWITTER_PASSWORD;
 
   if (!email || !password) {
-    throw new Error(
-      "TWITTER_EMAIL and TWITTER_PASSWORD are required for login"
-    );
+    throw new Error("TWITTER_EMAIL and TWITTER_PASSWORD are required for login");
   }
 
   ensureAuthDir();
@@ -131,10 +156,11 @@ async function loginAndSaveSession() {
   const headless = process.env.HEADLESS === "true";
   const browser = await chromium.launch({
     headless,
-    channel: undefined,
     args: [
       "--disable-blink-features=AutomationControlled",
       "--disable-infobars",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
     ],
   });
 
@@ -154,14 +180,13 @@ async function loginAndSaveSession() {
   try {
     console.log("Opening X login page...");
     await page.goto("https://x.com/i/flow/login", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
       timeout: 60000,
     });
 
     await page.waitForTimeout(2000);
 
     try {
-      // Email / username step
       const emailInput = await firstVisible(page, [
         'input[autocomplete="username"]',
         'input[name="text"]',
@@ -171,7 +196,6 @@ async function loginAndSaveSession() {
       await emailInput.fill(email);
       await clickNext(page);
 
-      // Unusual activity → ask for username/phone
       const unusualInput = page.locator(
         'input[data-testid="ocfEnterTextTextInput"]'
       );
@@ -181,13 +205,11 @@ async function loginAndSaveSession() {
         .catch(() => false);
 
       if (unusualVisible) {
-        const value = username || email;
         console.log("Username verification step detected...");
-        await unusualInput.fill(value);
+        await unusualInput.fill(username || email);
         await clickNext(page);
       }
 
-      // Password step
       const passwordInput = await firstVisible(page, [
         'input[name="password"]',
         'input[type="password"]',
@@ -217,6 +239,9 @@ async function loginAndSaveSession() {
 
     await context.storageState({ path: STORAGE_STATE_PATH });
     console.log(`Session saved to ${STORAGE_STATE_PATH}`);
+    console.log(
+      "For Render: copy this file contents into env var STORAGE_STATE_JSON"
+    );
   } finally {
     await browser.close();
   }
@@ -228,5 +253,6 @@ module.exports = {
   loginAndSaveSession,
   hasStorageState,
   getStorageStatePath,
+  syncStorageStateFromEnv,
   DEFAULT_TIMEOUT,
 };

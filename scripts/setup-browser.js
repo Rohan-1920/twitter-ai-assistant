@@ -1,19 +1,21 @@
 /**
- * Install Playwright Chromium into D: drive only (never C: default cache).
+ * Install Playwright Chromium for local Windows or Render/Linux.
  */
 const { spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const browsersPath =
-  process.env.PLAYWRIGHT_BROWSERS_PATH || "D:\\playwright-browsers";
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH && process.platform === "win32") {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "D:\\playwright-browsers";
+}
 
-fs.mkdirSync(browsersPath, { recursive: true });
-
-process.env.PLAYWRIGHT_BROWSERS_PATH = browsersPath;
-
-console.log(`Installing Chromium to: ${browsersPath}`);
+if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  fs.mkdirSync(process.env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
+  console.log(`Installing Chromium to: ${process.env.PLAYWRIGHT_BROWSERS_PATH}`);
+} else {
+  console.log("Installing Chromium to Playwright default cache...");
+}
 
 const result = spawnSync(
   process.platform === "win32" ? "npx.cmd" : "npx",
@@ -26,8 +28,8 @@ const result = spawnSync(
 );
 
 if (result.status !== 0) {
-  console.error("Browser install failed. Free at least ~500MB on D: drive and retry.");
+  console.error("Browser install failed.");
   process.exit(result.status || 1);
 }
 
-console.log("Chromium installed successfully on D: drive.");
+console.log("Chromium installed successfully.");

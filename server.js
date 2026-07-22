@@ -3,40 +3,85 @@ const cors = require("cors");
 require("dotenv").config();
 
 const twitterRoutes = require("./routes/twitter.routes");
+const { syncStorageStateFromEnv, hasStorageState } = require("./utils/browser");
+const { config } = require("./utils/config");
+const replyMonitorService = require("./services/replyMonitor.service");
+const queueService = require("./services/queue.service");
+const { log } = require("./utils/logger");
+
+// Materialize session from Render env before handling traffic.
+try {
+  syncStorageStateFromEnv();
+} catch (err) {
+  console.error("STORAGE_STATE_JSON error:", err.message);
+}
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (req, res) => {
-  res.send("Twitter AI Backend Running");
+  return res.status(200).json({
+    success: true,
+    message: "Twitter AI Backend Running",
+    sessionLoaded: hasStorageState(),
+    replyMonitorEnabled: config.replyMonitorEnabled,
+    endpoint: "POST /api/twitter/action",
+  });
+});
+
+app.get("/health", (req, res) => {
+  return res.status(200).json({
+    success: true,
+    sessionLoaded: hasStorageState(),
+    queue: queueService.getStatus(),
+    replyMonitorEnabled: config.replyMonitorEnabled,
+  });
 });
 
 app.use("/api/twitter", twitterRoutes);
 
-// Clear JSON 404 for unknown paths (helps debug wrong n8n URLs)
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
     error: `Route not found: ${req.method} ${req.originalUrl}`,
-    availableRoutes: ["GET /", "POST /api/twitter/action"],
+    availableRoutes: [
+      "GET /",
+      "GET /health",
+      "POST /api/twitter/action",
+    ],
   });
 });
 
-// Global error handler for malformed JSON
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
     return res.status(400).json({
       success: false,
       error: "Invalid JSON in request body",
+      code: "VALIDATION_ERROR",
     });
   }
-  next(err);
+
+  console.error("Unhandled error:", err);
+  log({
+    event: "UNHANDLED_ERROR",
+    error: err.message || String(err),
+  });
+  return res.status(500).json({
+    success: false,
+    error: "Internal server error",
+    code: "POST_FAILED",
+  });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = config.port;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Twitter AI Backend running on port ${PORT}`);
+  console.log(`Session loaded: ${hasStorageState()}`);
+  console.log(`Reply monitor: ${config.replyMonitorEnabled ? "enabled" : "disabled"}`);
+  console.log(`Check interval: ${config.checkIntervalMs}ms`);
+
+  replyMonitorService.start();
 });
