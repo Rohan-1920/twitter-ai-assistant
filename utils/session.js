@@ -36,11 +36,16 @@ function parseEnvSession() {
   const base64 = process.env.STORAGE_STATE_BASE64;
   if (base64 && base64.trim()) {
     try {
-      const decoded = Buffer.from(base64.trim(), "base64").toString("utf8");
+      // Strip accidental < > wrappers from copy-paste
+      let cleaned = base64.trim();
+      if (cleaned.startsWith("<") && cleaned.endsWith(">")) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      const decoded = Buffer.from(cleaned, "base64").toString("utf8");
       return JSON.parse(decoded);
     } catch {
       throw new Error(
-        "STORAGE_STATE_BASE64 is invalid. Generate with: node scripts/export-session.js"
+        "STORAGE_STATE_BASE64 is invalid. Run: npm run export-session"
       );
     }
   }
