@@ -688,7 +688,7 @@ async function executeTask(task, payload) {
   if (!hasStorageState()) {
     throw new AppError(
       ERROR_CODES.NO_SESSION,
-      "No Twitter session found. Set STORAGE_STATE_JSON or run `npm run login` locally.",
+      "No Twitter session found.",
       401
     );
   }

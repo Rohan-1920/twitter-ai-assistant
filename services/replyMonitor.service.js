@@ -142,7 +142,7 @@ const replyMonitorService = {
     if (!hasStorageState()) {
       log({
         event: "REPLY_MONITOR_DISABLED",
-        reason: "No storageState.json / STORAGE_STATE_JSON",
+        reason: "No storage/storageState.json / STORAGE_STATE_JSON",
       });
       return;
     }

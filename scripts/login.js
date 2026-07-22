@@ -1,13 +1,14 @@
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 
-process.env.PLAYWRIGHT_BROWSERS_PATH =
-  process.env.PLAYWRIGHT_BROWSERS_PATH || "D:\\playwright-browsers";
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH && process.platform === "win32") {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "D:\\playwright-browsers";
+}
 
 const { loginAndSaveSession } = require("../utils/browser");
 
 loginAndSaveSession()
   .then(() => {
-    console.log("Login successful. You can now start the server with `npm start`.");
+    console.log("You can now start the server with: npm start");
     process.exit(0);
   })
   .catch((error) => {

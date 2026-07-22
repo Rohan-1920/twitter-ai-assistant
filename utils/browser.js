@@ -9,26 +9,27 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH && process.platform === "win32") {
 }
 
 const { chromium } = require("playwright");
+const { config } = require("./config");
 
-const AUTH_DIR = path.join(__dirname, "..", "auth");
-const STORAGE_STATE_PATH = path.join(AUTH_DIR, "storageState.json");
+const STORAGE_DIR = path.join(__dirname, "..", "storage");
+const STORAGE_STATE_PATH = path.join(STORAGE_DIR, "storageState.json");
 const DEFAULT_TIMEOUT = Number(process.env.PLAYWRIGHT_TIMEOUT_MS) || 45000;
 
-function ensureAuthDir() {
-  if (!fs.existsSync(AUTH_DIR)) {
-    fs.mkdirSync(AUTH_DIR, { recursive: true });
+function ensureStorageDir() {
+  if (!fs.existsSync(STORAGE_DIR)) {
+    fs.mkdirSync(STORAGE_DIR, { recursive: true });
   }
 }
 
 /**
- * If STORAGE_STATE_JSON is set (Render secret), materialize auth/storageState.json.
+ * If STORAGE_STATE_JSON is set (Render secret), materialize storage/storageState.json.
  * Prefer file on disk when already present.
  */
 function syncStorageStateFromEnv() {
   const raw = process.env.STORAGE_STATE_JSON;
   if (!raw || !raw.trim()) return;
 
-  ensureAuthDir();
+  ensureStorageDir();
 
   try {
     const parsed = JSON.parse(raw);
@@ -40,8 +41,18 @@ function syncStorageStateFromEnv() {
   }
 }
 
+/** Migrate legacy auth/storageState.json → storage/storageState.json */
+function migrateLegacySession() {
+  const legacyPath = path.join(__dirname, "..", "auth", "storageState.json");
+  if (!fs.existsSync(STORAGE_STATE_PATH) && fs.existsSync(legacyPath)) {
+    ensureStorageDir();
+    fs.copyFileSync(legacyPath, STORAGE_STATE_PATH);
+  }
+}
+
 function hasStorageState() {
   syncStorageStateFromEnv();
+  migrateLegacySession();
   return fs.existsSync(STORAGE_STATE_PATH);
 }
 
@@ -51,10 +62,10 @@ function getStorageStatePath() {
 
 /**
  * Launch Chromium with saved session. Headless by default (Render-safe).
- * Does not perform login — uses storageState.json only.
+ * Does not perform login — uses storage/storageState.json only.
  */
 async function launchBrowser() {
-  ensureAuthDir();
+  ensureStorageDir();
   syncStorageStateFromEnv();
 
   const headless = process.env.HEADLESS !== "false";
@@ -110,52 +121,17 @@ async function closeBrowser(browser) {
   }
 }
 
-async function firstVisible(page, selectors, timeout = DEFAULT_TIMEOUT) {
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    for (const selector of selectors) {
-      const locator = page.locator(selector).first();
-      if (await locator.isVisible().catch(() => false)) {
-        return locator;
-      }
-    }
-    await page.waitForTimeout(400);
-  }
-
-  throw new Error(`No visible element for: ${selectors.join(" | ")}`);
-}
-
-async function clickNext(page) {
-  const next = page
-    .locator(
-      'button:has-text("Next"), div[role="button"]:has-text("Next"), [data-testid="ocfEnterTextNextButton"]'
-    )
-    .first();
-
-  if (await next.isVisible().catch(() => false)) {
-    await next.click();
-  }
-}
-
 /**
- * One-time local login → auth/storageState.json
- * For Render: upload that file content as STORAGE_STATE_JSON env var.
+ * One-time manual login → storage/storageState.json
+ * Run via: npm run login
+ *
+ * For Render: copy file contents into STORAGE_STATE_JSON env var.
  */
 async function loginAndSaveSession() {
-  const email = process.env.TWITTER_EMAIL;
-  const username = process.env.TWITTER_USERNAME;
-  const password = process.env.TWITTER_PASSWORD;
+  ensureStorageDir();
 
-  if (!email || !password) {
-    throw new Error("TWITTER_EMAIL and TWITTER_PASSWORD are required for login");
-  }
-
-  ensureAuthDir();
-
-  const headless = process.env.HEADLESS === "true";
   const browser = await chromium.launch({
-    headless,
+    headless: false,
     args: [
       "--disable-blink-features=AutomationControlled",
       "--disable-infobars",
@@ -178,70 +154,31 @@ async function loginAndSaveSession() {
   const page = await context.newPage();
 
   try {
-    console.log("Opening X login page...");
-    await page.goto("https://x.com/i/flow/login", {
+    console.log("Opening Twitter login page...");
+    console.log("Please log in manually in the browser window (CAPTCHA / 2FA supported).");
+
+    await page.goto(`${config.twitterUrl}/login`, {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
 
-    await page.waitForTimeout(2000);
+    console.log("Waiting for login to complete (up to 5 minutes)...");
 
-    try {
-      const emailInput = await firstVisible(page, [
-        'input[autocomplete="username"]',
-        'input[name="text"]',
-        'input[type="text"]',
-      ]);
-      await emailInput.click();
-      await emailInput.fill(email);
-      await clickNext(page);
+    await page.waitForURL(
+      (url) => url.hostname.includes("x.com") && url.pathname.includes("/home"),
+      { timeout: 300000 }
+    );
 
-      const unusualInput = page.locator(
-        'input[data-testid="ocfEnterTextTextInput"]'
-      );
-      const unusualVisible = await unusualInput
-        .waitFor({ state: "visible", timeout: 8000 })
-        .then(() => true)
-        .catch(() => false);
-
-      if (unusualVisible) {
-        console.log("Username verification step detected...");
-        await unusualInput.fill(username || email);
-        await clickNext(page);
-      }
-
-      const passwordInput = await firstVisible(page, [
-        'input[name="password"]',
-        'input[type="password"]',
-        'input[autocomplete="current-password"]',
-      ]);
-      await passwordInput.fill(password);
-
-      const loginBtn = await firstVisible(page, [
-        '[data-testid="LoginForm_Login_Button"]',
-        'button[data-testid="LoginForm_Login_Button"]',
-        'div[role="button"]:has-text("Log in")',
-        'button:has-text("Log in")',
-      ]);
-      await loginBtn.click();
-    } catch (autoError) {
-      console.warn("Auto-login step failed:", autoError.message);
-      console.log(
-        "Complete login manually in the browser window (CAPTCHA / 2FA ok)."
-      );
-    }
-
-    console.log("Waiting for successful login (up to 3 minutes)...");
     await page.waitForSelector(
-      '[data-testid="SideNav_NewTweet_Button"], [data-testid="AppTabBar_Home_Link"], a[href="/home"]',
-      { timeout: 180000 }
+      '[data-testid="SideNav_NewTweet_Button"], [data-testid="AppTabBar_Home_Link"], [data-testid="primaryColumn"]',
+      { timeout: 30000 }
     );
 
     await context.storageState({ path: STORAGE_STATE_PATH });
-    console.log(`Session saved to ${STORAGE_STATE_PATH}`);
-    console.log(
-      "For Render: copy this file contents into env var STORAGE_STATE_JSON"
-    );
+
+    console.log("Twitter session saved successfully.");
+    console.log(`Saved to: ${STORAGE_STATE_PATH}`);
+    console.log("For Render: copy this file into env var STORAGE_STATE_JSON");
   } finally {
     await browser.close();
   }
