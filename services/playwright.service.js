@@ -4,6 +4,7 @@ const {
   hasStorageState,
   DEFAULT_TIMEOUT,
 } = require("../utils/browser");
+const path = require("path");
 const {
   SESSION_EXPIRED_MESSAGE,
   NO_SESSION_MESSAGE,
@@ -14,7 +15,93 @@ const { log } = require("../utils/logger");
 const { isLinuxOrRender } = require("../utils/playwright-env");
 
 const TWITTER_HOME = config.twitterHome;
-const RENDER_TIMEOUT = 60000;
+const COMPOSE_URL = `${config.twitterUrl}/compose/post`;
+const RENDER_TIMEOUT = 90000;
+
+function navTimeout() {
+  return isLinuxOrRender() ? RENDER_TIMEOUT : DEFAULT_TIMEOUT;
+}
+
+async function captureFailureDebug(page, step) {
+  if (!page) return;
+  try {
+    const url = page.url();
+    const title = await page.title().catch(() => "");
+    const bodySnippet = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "")
+      .then((t) => t.slice(0, 300));
+
+    log({
+      event: "PLAYWRIGHT_DEBUG",
+      step,
+      url,
+      title,
+      bodySnippet,
+    });
+
+    const shotPath = path.join(
+      __dirname,
+      "..",
+      "logs",
+      `fail-${step}-${Date.now()}.png`
+    );
+    await page.screenshot({ path: shotPath, fullPage: true }).catch(() => {});
+    log({ event: "PLAYWRIGHT_SCREENSHOT", step, path: shotPath });
+  } catch {
+    // ignore debug failures
+  }
+}
+
+function withPageContext(message, page) {
+  if (!page) return message;
+  try {
+    return `${message} (page: ${page.url()})`;
+  } catch {
+    return message;
+  }
+}
+
+async function assertSessionValid(page) {
+  const url = page.url();
+  if (
+    url.includes("/login") ||
+    url.includes("/i/flow/login") ||
+    url.includes("/i/flow/signup")
+  ) {
+    throw new AppError(
+      ERROR_CODES.SESSION_EXPIRED,
+      SESSION_EXPIRED_MESSAGE,
+      401
+    );
+  }
+
+  const loginInput = page.locator(
+    'input[autocomplete="username"], input[name="text"][type="text"]'
+  );
+  if (await loginInput.first().isVisible().catch(() => false)) {
+    throw new AppError(
+      ERROR_CODES.SESSION_EXPIRED,
+      SESSION_EXPIRED_MESSAGE,
+      401
+    );
+  }
+
+  const signInLink = page.locator('a[href="/login"], a[href="/i/flow/login"]');
+  const onGuestHome =
+    url.endsWith("/home") || url.endsWith("x.com/") || url.endsWith("x.com");
+  if (
+    onGuestHome &&
+    (await signInLink.first().isVisible().catch(() => false))
+  ) {
+    throw new AppError(
+      ERROR_CODES.SESSION_EXPIRED,
+      SESSION_EXPIRED_MESSAGE,
+      401
+    );
+  }
+}
 
 /**
  * Wait for first matching visible selector.
@@ -37,25 +124,13 @@ async function waitForSelector(page, selectors, options = {}) {
 
   throw new AppError(
     options.errorCode || ERROR_CODES.TWITTER_UI_CHANGED,
-    options.errorMessage ||
-      `Twitter UI changed or element missing. Tried: ${selectors.join(", ")}`,
+    withPageContext(
+      options.errorMessage ||
+        `Twitter UI changed or element missing. Tried: ${selectors.join(", ")}`,
+      page
+    ),
     options.status || 502
   );
-}
-
-function assertSessionValid(page) {
-  const url = page.url();
-  if (
-    url.includes("/login") ||
-    url.includes("/i/flow/login") ||
-    url.includes("/i/flow/signup")
-  ) {
-    throw new AppError(
-      ERROR_CODES.SESSION_EXPIRED,
-      SESSION_EXPIRED_MESSAGE,
-      401
-    );
-  }
 }
 
 async function detectRateLimit(page) {
@@ -78,7 +153,7 @@ async function navigateTo(page, url) {
   try {
     response = await page.goto(url, {
       waitUntil: "domcontentloaded",
-      timeout: DEFAULT_TIMEOUT,
+      timeout: navTimeout(),
     });
   } catch (err) {
     const msg = err.message || "";
@@ -121,7 +196,7 @@ async function navigateTo(page, url) {
     await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(3000);
   }
-  assertSessionValid(page);
+  await assertSessionValid(page);
   await dismissOverlays(page);
   await detectRateLimit(page);
 }
@@ -166,11 +241,11 @@ async function openComposer(page) {
       }
     );
   } catch (err) {
-    assertSessionValid(page);
+    await assertSessionValid(page);
     throw err;
   }
 
-  assertSessionValid(page);
+  await assertSessionValid(page);
 
   const inlineComposer = page.locator('[data-testid="tweetTextarea_0"]').first();
   if (await inlineComposer.isVisible().catch(() => false)) {
@@ -205,7 +280,7 @@ async function openComposer(page) {
     );
     await composeButton.click();
   } catch (err) {
-    assertSessionValid(page);
+    await assertSessionValid(page);
     throw err;
   }
 }
@@ -222,6 +297,7 @@ async function pasteIntoTextarea(page, content) {
         'div[contenteditable="true"][role="textbox"]',
         'div[aria-label="Post text"]',
         'div[aria-label="Tweet text"]',
+        '[data-testid="tweetTextarea_0"] div[contenteditable="true"]',
       ],
       {
         errorCode: ERROR_CODES.TWITTER_UI_CHANGED,
@@ -229,11 +305,26 @@ async function pasteIntoTextarea(page, content) {
       }
     );
   } catch (err) {
-    assertSessionValid(page);
+    await assertSessionValid(page);
     throw err;
   }
 
   await textarea.click();
+  await textarea.focus();
+
+  // Headless Render: clipboard paste is unreliable — type directly.
+  if (isLinuxOrRender()) {
+    await page.keyboard.press("Control+A");
+    await page.keyboard.press("Backspace");
+    await textarea.fill(content);
+
+    const filled = await textarea.innerText().catch(() => "");
+    if (!filled || !filled.includes(content.slice(0, Math.min(12, content.length)))) {
+      await textarea.click();
+      await page.keyboard.insertText(content);
+    }
+    return;
+  }
 
   const mod = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.press(`${mod}+A`);
@@ -281,7 +372,7 @@ async function clickPostButton(page) {
       }
     );
   } catch (err) {
-    assertSessionValid(page);
+    await assertSessionValid(page);
     throw err;
   }
 
@@ -295,14 +386,20 @@ async function clickPostButton(page) {
 
   const ariaDisabled = await submitButton.getAttribute("aria-disabled");
   if (ariaDisabled === "true") {
+    await captureFailureDebug(page, "post-button-disabled");
     throw new AppError(
       ERROR_CODES.TWEET_BUTTON_NOT_FOUND,
-      "Tweet button not found or not clickable (still disabled).",
+      withPageContext(
+        "Tweet Post button is disabled — text may not have been entered.",
+        page
+      ),
       502
     );
   }
 
-  await submitButton.click();
+  await submitButton.click({ force: true }).catch(async () => {
+    await submitButton.click();
+  });
 }
 
 /**
@@ -329,6 +426,21 @@ function extractTweetIdFromPayload(payload) {
 function buildTweetUrl(tweetId) {
   if (!tweetId) return null;
   return `${config.twitterUrl}/i/web/status/${tweetId}`;
+}
+
+/** Verify auth cookies exist before automation. */
+async function verifyAuthCookies(context) {
+  const cookies = await context.cookies("https://x.com");
+  const hasAuth = cookies.some(
+    (c) => c.name === "auth_token" && c.value && c.value.length > 5
+  );
+  if (!hasAuth) {
+    throw new AppError(
+      ERROR_CODES.SESSION_EXPIRED,
+      SESSION_EXPIRED_MESSAGE,
+      401
+    );
+  }
 }
 
 /**
@@ -407,7 +519,7 @@ async function waitForPostSuccess(page) {
   }
 
   if (createTweetOk || tweetId) {
-    assertSessionValid(page);
+    await assertSessionValid(page);
     return { tweetId, tweetUrl: buildTweetUrl(tweetId) };
   }
 
@@ -418,13 +530,13 @@ async function waitForPostSuccess(page) {
     .catch(() => false);
 
   if (toastVisible) {
-    assertSessionValid(page);
+    await assertSessionValid(page);
     return { tweetId, tweetUrl: buildTweetUrl(tweetId) };
   }
 
   // Inline composer often clears after a successful post.
   await page.waitForTimeout(2000);
-  assertSessionValid(page);
+  await assertSessionValid(page);
   await detectRateLimit(page);
 
   const textLeft = await page
@@ -446,18 +558,35 @@ async function waitForPostSuccess(page) {
 
 /** CREATE_POST — fully automated publish using saved session. */
 async function createPost(page, content) {
-  await navigateTo(page, TWITTER_HOME);
-
-  try {
-    await openComposer(page);
-  } catch (err) {
-    log({
-      event: "COMPOSER_FALLBACK",
-      message: "Home composer failed, trying /compose/post",
-      error: err.message,
-    });
-    await navigateTo(page, `${config.twitterUrl}/compose/post`);
-    await dismissOverlays(page);
+  // On Render headless, go straight to compose URL (more reliable than home timeline).
+  if (isLinuxOrRender()) {
+    await navigateTo(page, COMPOSE_URL);
+    await waitForSelector(
+      page,
+      [
+        '[data-testid="tweetTextarea_0"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[aria-label="Post text"]',
+      ],
+      {
+        errorCode: ERROR_CODES.TWITTER_UI_CHANGED,
+        errorMessage:
+          "Twitter compose page did not load. Session may be expired — run npm run login.",
+      }
+    );
+  } else {
+    await navigateTo(page, TWITTER_HOME);
+    try {
+      await openComposer(page);
+    } catch (err) {
+      log({
+        event: "COMPOSER_FALLBACK",
+        message: "Home composer failed, trying /compose/post",
+        error: err.message,
+      });
+      await navigateTo(page, COMPOSE_URL);
+      await dismissOverlays(page);
+    }
   }
 
   await pasteIntoTextarea(page, content);
@@ -738,6 +867,7 @@ async function executeTask(task, payload) {
   }
 
   let browser;
+  let page;
 
   try {
     let session;
@@ -752,7 +882,8 @@ async function executeTask(task, payload) {
     }
 
     browser = session.browser;
-    const { page } = session;
+    page = session.page;
+    await verifyAuthCookies(session.context);
     const { content, tweetUrl, mentionUrl } = payload;
 
     switch (task) {
@@ -815,6 +946,9 @@ async function executeTask(task, payload) {
         );
     }
   } catch (error) {
+    if (page) {
+      await captureFailureDebug(page, task || "unknown");
+    }
     throw classifyError(error);
   } finally {
     await closeBrowser(browser);
@@ -828,4 +962,44 @@ module.exports = {
   scanForNewReplies,
   collectRepliesForTweet,
   buildTweetUrl,
+  checkSession,
 };
+
+/**
+ * Quick session diagnostic — loads Twitter home and reports login state.
+ */
+async function checkSession() {
+  if (!hasStorageState()) {
+    throw new AppError(ERROR_CODES.NO_SESSION, NO_SESSION_MESSAGE, 401);
+  }
+
+  let browser;
+
+  try {
+    const session = await launchBrowser();
+    browser = session.browser;
+    const { page, context } = session;
+
+    await verifyAuthCookies(context);
+    await navigateTo(page, TWITTER_HOME);
+
+    const loggedIn = await page
+      .locator(
+        '[data-testid="SideNav_NewTweet_Button"], [data-testid="tweetTextarea_0"]'
+      )
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    return {
+      success: true,
+      sessionLoaded: true,
+      loggedIn,
+      url: page.url(),
+    };
+  } catch (error) {
+    throw classifyError(error);
+  } finally {
+    await closeBrowser(browser);
+  }
+}

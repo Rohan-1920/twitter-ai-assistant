@@ -79,4 +79,22 @@ async function handleAction(req, res) {
   }
 }
 
-module.exports = { handleAction };
+async function handleSessionCheck(req, res) {
+  try {
+    const result = await twitterService.checkSession();
+    return res.status(200).json(result);
+  } catch (error) {
+    const appError =
+      error instanceof AppError
+        ? error
+        : new AppError(
+            ERROR_CODES.POST_FAILED,
+            error.message || "Session check failed.",
+            500
+          );
+    const mapped = toErrorResponse(appError, "SESSION_CHECK");
+    return res.status(mapped.status).json(mapped.body);
+  }
+}
+
+module.exports = { handleAction, handleSessionCheck };

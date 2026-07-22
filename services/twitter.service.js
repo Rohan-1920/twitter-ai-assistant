@@ -177,10 +177,17 @@ async function executeAction(payload) {
   return result;
 }
 
+async function checkSession() {
+  return queueService.enqueue("SESSION_CHECK", () =>
+    playwrightService.checkSession()
+  );
+}
+
 module.exports = {
   TASKS,
   SUPPORTED_TASKS,
   IMPLEMENTED_TASKS,
   validatePayload,
   executeAction,
+  checkSession,
 };

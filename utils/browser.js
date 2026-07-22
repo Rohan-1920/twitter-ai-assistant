@@ -6,9 +6,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 require("./playwright-env");
 
 const { chromium } = require("playwright");
-const {
-  getChromiumLaunchOptions,
-} = require("./playwright-env");
+const { isLinuxOrRender } = require("../utils/playwright-env");
 const {
   ensureStorageDir,
   syncStorageStateFromEnv,
@@ -44,8 +42,9 @@ async function launchBrowser() {
   }
 
   const context = await browser.newContext(contextOptions);
-  context.setDefaultTimeout(DEFAULT_TIMEOUT);
-  context.setDefaultNavigationTimeout(DEFAULT_TIMEOUT);
+  const timeout = isLinuxOrRender() ? 90000 : DEFAULT_TIMEOUT;
+  context.setDefaultTimeout(timeout);
+  context.setDefaultNavigationTimeout(timeout);
 
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: "https://x.com",

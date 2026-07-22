@@ -1,8 +1,9 @@
 const express = require("express");
-const { handleAction } = require("../controllers/twitter.controller");
+const { handleAction, handleSessionCheck } = require("../controllers/twitter.controller");
 
 const router = express.Router();
 
+router.get("/session-check", handleSessionCheck);
 router.post("/action", handleAction);
 
 // Path exists — non-POST methods must not look like a missing route (Express default 404).
