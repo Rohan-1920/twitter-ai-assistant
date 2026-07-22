@@ -1,22 +1,36 @@
 /**
  * Install Playwright Chromium using the default bundled browser cache.
- * Linux/Render: installs system deps via --with-deps.
+ *
+ * Render/CI: chromium only (no --with-deps — requires root/su which fails on Render).
+ * Local Linux with deps: PLAYWRIGHT_INSTALL_DEPS=true npm run setup:browser
  */
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 require("../utils/playwright-env");
 
 const { spawnSync } = require("child_process");
-const { isLinuxOrRender } = require("../utils/playwright-env");
+
+const useSystemDeps =
+  process.env.PLAYWRIGHT_INSTALL_DEPS === "true" &&
+  !process.env.RENDER &&
+  !process.env.CI;
 
 const args = ["playwright", "install"];
 
-if (isLinuxOrRender()) {
+if (useSystemDeps) {
   args.push("--with-deps");
 }
 
 args.push("chromium");
 
-console.log(`Installing Playwright Chromium (${isLinuxOrRender() ? "linux/render" : "local"})...`);
+const mode = process.env.RENDER
+  ? "render"
+  : process.env.CI
+    ? "ci"
+    : useSystemDeps
+      ? "local+deps"
+      : "local";
+
+console.log(`Installing Playwright Chromium (${mode})...`);
 
 const result = spawnSync(
   process.platform === "win32" ? "npx.cmd" : "npx",

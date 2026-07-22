@@ -391,8 +391,10 @@ Copy the base64 output.
 
 **Build command:**
 ```
-npm install && npx playwright install --with-deps chromium
+npm install
 ```
+
+Chromium installs automatically via `postinstall`. Do **not** use `--with-deps` on Render (requires root).
 
 **Start command:**
 ```
