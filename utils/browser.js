@@ -30,11 +30,7 @@ async function launchBrowser() {
   syncStorageStateFromEnv();
   migrateLegacySession();
 
-  const headless = process.env.HEADLESS !== "false";
-
-  const browser = await chromium.launch(
-    getChromiumLaunchOptions({ headless })
-  );
+  const browser = await chromium.launch(getChromiumLaunchOptions());
 
   const contextOptions = {
     viewport: { width: 1280, height: 900 },

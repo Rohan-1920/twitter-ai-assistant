@@ -25,9 +25,12 @@ function configurePlaywrightEnv() {
   if (isLinuxOrRender()) {
     fs.mkdirSync(PROJECT_BROWSERS_DIR, { recursive: true });
     process.env.PLAYWRIGHT_BROWSERS_PATH = PROJECT_BROWSERS_DIR;
+    // Servers have no display — always headless on Render/Linux.
+    process.env.HEADLESS = "true";
     console.log(
       `[playwright] Browser path (linux/render): ${PROJECT_BROWSERS_DIR}`
     );
+    console.log("[playwright] Headless mode forced (no X server on server)");
     return;
   }
 
@@ -54,10 +57,23 @@ function isChromiumInstalled() {
 }
 
 /**
+ * Resolve headless mode. Always true on Render/Linux (no X server / display).
+ */
+function resolveHeadless(requested = true) {
+  if (isLinuxOrRender()) {
+    return true;
+  }
+  if (typeof requested === "boolean") {
+    return requested;
+  }
+  return process.env.HEADLESS !== "false";
+}
+
+/**
  * Standard Chromium launch options — never sets executablePath.
  */
 function getChromiumLaunchOptions({ headless = true } = {}) {
-  const launchOptions = { headless };
+  const launchOptions = { headless: resolveHeadless(headless) };
 
   if (isLinuxOrRender()) {
     launchOptions.args = [
@@ -78,5 +94,6 @@ module.exports = {
   getProjectBrowsersPath,
   configurePlaywrightEnv,
   isChromiumInstalled,
+  resolveHeadless,
   getChromiumLaunchOptions,
 };
