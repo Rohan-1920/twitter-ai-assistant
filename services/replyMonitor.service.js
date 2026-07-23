@@ -154,7 +154,8 @@ const replyMonitorService = {
       intervalMs: config.checkIntervalMs,
     });
 
-    // First tick after a short delay so the HTTP server can bind first.
+    // First tick delayed so HTTP stays healthy; longer on Render (low RAM / Chromium).
+    const firstDelayMs = process.env.RENDER ? 60000 : 5000;
     setTimeout(() => {
       tick().catch((err) => {
         log({
@@ -162,7 +163,7 @@ const replyMonitorService = {
           error: err.message || String(err),
         });
       });
-    }, 5000);
+    }, firstDelayMs);
 
     timer = setInterval(() => {
       tick().catch((err) => {

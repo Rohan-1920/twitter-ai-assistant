@@ -31,7 +31,10 @@ async function launchBrowser() {
   const browser = await chromium.launch(getChromiumLaunchOptions());
 
   const contextOptions = {
-    viewport: { width: 1280, height: 900 },
+    // Smaller viewport on Render to cut Chromium memory use.
+    viewport: isLinuxOrRender()
+      ? { width: 960, height: 720 }
+      : { width: 1280, height: 900 },
     locale: "en-US",
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",

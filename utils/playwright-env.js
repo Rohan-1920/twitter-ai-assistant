@@ -72,10 +72,28 @@ function getChromiumLaunchOptions({ headless = true } = {}) {
   const launchOptions = { headless: resolveHeadless(headless) };
 
   if (isLinuxOrRender()) {
+    // Low-RAM flags — Render free/starter (~512MB) OOMs without these.
     launchOptions.args = [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-default-apps",
+      "--disable-sync",
+      "--disable-translate",
+      "--hide-scrollbars",
+      "--mute-audio",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
+      "--renderer-process-limit=1",
+      "--js-flags=--max-old-space-size=128",
     ];
   }
 
