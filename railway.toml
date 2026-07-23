@@ -2,7 +2,11 @@
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
+# If the Railway UI still shows Nixpacks, set Builder = Dockerfile manually.
+# Until then nixpacks.toml also installs Chromium OS libraries.
+
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
+startCommand = "npm start"
