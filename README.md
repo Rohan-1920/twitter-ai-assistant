@@ -1,127 +1,76 @@
 # Twitter AI Assistant
 
-Production-ready Node.js backend that connects **n8n**, **OpenAI**, and **Playwright** to fully automate Twitter/X posting and replies.
+Simple Twitter/X automation backend.
 
-No manual browser clicking is needed after the one-time login step.
+**In one line:** n8n AI se tweet likhta hai → yeh server Twitter pe **khud** post kar deta hai.
 
----
-
-## What This Project Does
-
-| Feature | Description |
-|---------|-------------|
-| **Auto Tweet Posting** | n8n sends AI-generated content → backend posts it on Twitter via Playwright |
-| **Session Reuse** | Login once, save cookies → all future posts use saved session |
-| **Reply Monitor** | Background service watches for new replies on your tweets |
-| **AI Auto-Reply** | OpenAI generates natural replies → Playwright posts them automatically |
-| **Queue** | Only one browser automation runs at a time (no conflicts) |
-| **Anti-Duplicate** | Same reply is never answered twice |
+Login **sirf ek dafa**. Uske baad har post automatic.
 
 ---
 
-## Tech Stack (Kya Kya Use Hua Hai)
+# 1. Installation (Pehle Yeh Karo)
 
-| Technology | Role |
-|------------|------|
-| **Node.js** | Backend runtime |
-| **Express.js** | REST API server |
-| **Playwright** | Browser automation (Chromium) for Twitter posting |
-| **OpenAI API** | AI reply generation |
-| **n8n** | Workflow automation (schedule, AI content, webhooks) |
-| **JSON files** | Session storage, tracked tweets, processed reply IDs |
-| **Render** | Cloud deployment (optional) |
-
-### NPM Packages
-
-- `express` — HTTP server & routes
-- `playwright` — headless/headed Chromium automation
-- `cors` — allow n8n / external requests
-- `dotenv` — environment variables from `.env`
+Naya PC / sister setup — **upar se neeche** steps follow karo. Koi step skip mat karo.
 
 ---
 
-## Architecture
+## 1.1 Pehle yeh software install karo
 
-```
-n8n Workflow
-    │
-    ├── OpenAI  →  generates tweet content
-    │
-    └── HTTP Request  →  POST /api/twitter/action
-                              │
-                              ▼
-                         Express Server
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-              Twitter Service      Reply Monitor (background)
-                    │                   │
-                    ▼                   ├── OpenAI (reply text)
-              Queue Service             └── Playwright (post reply)
-                    │
-                    ▼
-            Playwright Service
-                    │
-                    ▼
-              Twitter / X  (x.com)
+| # | Software | Kyun | Link |
+|---|----------|------|------|
+| 1 | **Git** | Code download (clone) | https://git-scm.com/downloads |
+| 2 | **Node.js 20 LTS** | Project chalane ke liye | https://nodejs.org → **LTS** |
+| 3 | Twitter/X account | Posting | https://x.com |
+| 4 | OpenAI key (optional) | Auto-reply ke liye | https://platform.openai.com |
+
+Install ke baad **naya terminal** kholo aur check karo:
+
+```powershell
+node -v
+npm -v
+git --version
 ```
 
-### Request Flow (CREATE_POST)
-
-```
-n8n → POST { task, content } → Controller → Twitter Service → Queue → Playwright
-                                                                          │
-                                                              storage/storageState.json
-                                                                          │
-                                                              x.com/home → Post Tweet
-                                                                          │
-                                                              ← { success, tweetId, tweetUrl }
-```
+`node -v` → `v20` ya usse bada hona chahiye.
 
 ---
 
-## Laptop Setup (Apne Computer Pe Kaise Set Karein)
+## 1.2 Project download (clone)
 
-### Requirements
-
-- **Node.js 18+** — [nodejs.org](https://nodejs.org)
-- **Git** — clone the repo
-- **~500 MB disk** — for Playwright Chromium browser
-- **Twitter/X account**
-
-### Step 1 — Clone & Install
-
-```bash
+```powershell
 git clone https://github.com/Rohan-1920/twitter-ai-assistant.git
 cd twitter-ai-assistant
+```
+
+---
+
+## 1.3 Packages + browser install
+
+```powershell
 npm install
 ```
 
-### Step 2 — Install Chromium Browser
+**Yeh command yeh cheezein install karti hai:**
 
-Chromium installs automatically on `npm install` via `postinstall`.
+- Node packages: `express`, `cors`, `dotenv`, `playwright`
+- Chromium browser (automatic) → folder `.playwright-browsers/`
+- Size ~200–400 MB — pehli dafa thoda time lag sakta hai
 
-To install manually:
+Agar browser na aaye:
 
-```bash
+```powershell
 npm run setup:browser
 ```
 
-Playwright stores Chromium inside the project folder:
+---
 
-```text
-d:\twitter-ai-agent\.playwright-browsers
+## 1.4 Config file (`.env`)
+
+```powershell
+copy .env.example .env
 ```
 
-So if your project is on **D drive**, browser files also stay on **D drive**.
-
-### Step 3 — Environment File
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set at minimum:
+`.env` kholo aur yeh set karo:
 
 ```env
 PORT=3000
@@ -129,226 +78,178 @@ HEADLESS=true
 TWITTER_URL=https://x.com
 TWITTER_USERNAME=your_handle
 
-# Required for auto-replies
 OPENAI_API_KEY=sk-your-key-here
 OPENAI_MODEL=gpt-4o-mini
 
-# Reply monitor (optional)
 CHECK_INTERVAL=90000
 REPLY_MONITOR_ENABLED=true
 ```
 
-> **Note:** Twitter email/password are **not required**. Login is done manually in the browser.
+- `TWITTER_USERNAME` = apna handle (`@` ke bina)
+- `OPENAI_API_KEY` = auto-replies ke liye (sirf posting ke liye optional)
+- Twitter password yahan **zaroori nahi**
 
-### Step 4 — Twitter Login (One Time Only)
+---
 
-```bash
+## 1.5 Twitter login (ek dafa)
+
+```powershell
 npm run login
 ```
 
-What happens:
+1. Browser window khulegi  
+2. Twitter pe **manually** login karo (CAPTCHA/2FA OK)  
+3. Home page aate hi session save ho jati hai  
+4. File: `storage/storageState.json`
 
-1. Chromium opens in **headed mode** (visible window)
-2. `https://x.com/login` opens
-3. **You log in manually** (CAPTCHA / 2FA supported)
-4. Script waits until `https://x.com/home` loads
-5. Session saved to `storage/storageState.json`
-6. Console prints: **Twitter session saved successfully.**
-
-You only need to repeat this when the session expires.
-
-### Step 5 — Start the Server
-
-```bash
-npm start
-```
-
-You should see:
-
-```
-Twitter AI Backend running on port 3000
-Session loaded: true (source: file)
-Reply monitor: enabled
-```
-
-Test in browser: `http://localhost:3000`
+Expire ho to dubara `npm run login`.
 
 ---
 
-## n8n Workflow Setup
-
-### Overview
-
-n8n handles **scheduling** and **AI content generation**.  
-This backend handles **actual Twitter posting** via Playwright.
-
-```
-Schedule Trigger  →  OpenAI (generate tweet)  →  HTTP Request (this backend)  →  Done
-```
-
-### Step 1 — Make Sure Backend Is Running
-
-```bash
-npm start
-```
-
-Backend URL: `http://localhost:3000`
-
-If n8n is **cloud-hosted** (n8n.io), your laptop backend is not reachable directly. Use one of:
-
-- **ngrok** — `ngrok http 3000` → use the public URL
-- **Render deploy** — deploy backend to Render (see below)
-
-### D Drive Note
-
-If you do not want to use **C drive** at all:
-
-1. Keep this project in `D:\twitter-ai-agent`
-2. Playwright browsers will stay in:
-   `D:\twitter-ai-agent\.playwright-browsers`
-3. Twitter session stays in:
-   `D:\twitter-ai-agent\storage\storageState.json`
-4. Logs stay in:
-   `D:\twitter-ai-agent\logs\`
-5. For `ngrok`, do **not** use the Winget-installed version on `C:`.  
-   Instead, download the portable `ngrok.exe` and place it somewhere on `D:`, for example:
-   `D:\tools\ngrok\ngrok.exe`
-
-Then run it like this:
+## 1.6 Server start
 
 ```powershell
-& "D:\tools\ngrok\ngrok.exe" config add-authtoken YOUR_TOKEN
-& "D:\tools\ngrok\ngrok.exe" http 3000
+npm start
 ```
 
-### Step 2 — Create n8n Workflow
+Success:
 
-#### Node 1: Schedule Trigger
-
-- Run every X hours / daily / custom cron
-- Example: every 6 hours
-
-#### Node 2: OpenAI (Generate Tweet)
-
-- **Resource:** Message a Model
-- **Model:** `gpt-4o-mini` (or your choice)
-- **Prompt example:**
-
-```
-Write a short, engaging tweet about AI and business automation.
-Max 280 characters. No hashtags unless natural.
+```text
+Twitter AI Backend running on port 3000
+Session loaded: true
 ```
 
-- Output field: `content` (or map `{{ $json.message.content }}`)
+Browser mein kholo:
 
-#### Node 3: HTTP Request (Post to Backend)
+- http://localhost:3000  
+- http://localhost:3000/health  
 
-| Setting | Value |
-|---------|-------|
-| **Method** | `POST` |
-| **URL** | `http://localhost:3000/api/twitter/action` |
-| **Authentication** | None |
-| **Body Content Type** | JSON |
-| **Timeout** | **`180000` ms (3 minutes)** — required for Render + Playwright |
-| **Body** | see below |
+Dono pe `success: true` aana chahiye.
 
-```json
-{
-  "platform": "twitter",
-  "task": "CREATE_POST",
-  "content": "{{ $json.message.content }}"
-}
-```
+Server chalne do. Band karna ho to `Ctrl + C`.
 
-> Adjust `content` expression to match your OpenAI node output field.
+---
 
-> **Important:** Default n8n timeout is 30 seconds. Playwright tweet posting on Render often takes **60–120 seconds** (browser launch + Twitter load + post). Set timeout to **180000** or the workflow will fail with `timeout of 30000ms exceeded` even if the tweet eventually posts.
+## Installation checklist
 
-> **Render cold start:** Add an optional HTTP Request node before posting: `GET https://your-app.onrender.com/health` to wake the server first.
+- [ ] Git + Node.js 20+ installed  
+- [ ] `git clone` + `cd twitter-ai-assistant`  
+- [ ] `npm install` done  
+- [ ] `.env` banaya  
+- [ ] `npm run login` successful  
+- [ ] `npm start` → health OK  
 
-#### Node 4 (Optional): IF / Error Handler
+**Yahan tak setup complete.** Neeche project samajhne ke liye hai (HR / demo).
 
-Check `{{ $json.success }}` — if `false`, send alert (email, Slack, etc.)
+---
 
-### Step 3 — Test the Workflow
+# 2. Yeh Project Kya Hai? (HR / Simple Explanation)
 
-1. Run workflow manually (Execute Workflow button)
-2. Check n8n output — should return:
+| Point | Simple words |
+|-------|----------------|
+| **Problem** | Har tweet manually likhna / post karna time leta hai |
+| **Solution** | AI + automation se tweet schedule / post hota hai |
+| **n8n** | Workflow tool — kab post ho, AI content kya ho |
+| **Yeh backend** | Asli Twitter pe browser automation se post karta hai |
+| **Playwright** | Computer pe Chromium browser chalata hai (jaise insan post kare) |
+| **Safety** | Login cookies save; password har request pe nahi bhejte |
 
-```json
-{
-  "success": true,
-  "task": "CREATE_POST",
-  "message": "Tweet published successfully",
-  "tweetId": "1234567890",
-  "tweetUrl": "https://x.com/i/web/status/1234567890"
-}
-```
+**Flow (easy):**
 
-3. Verify tweet appears on your Twitter profile
-
-### n8n Workflow Diagram
-
-```
-┌─────────────────┐
-│ Schedule Trigger│  every 6 hours
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│  OpenAI Node    │  generate tweet text
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│  HTTP Request   │  POST /api/twitter/action
-└────────┬────────┘
-         │
-    success: true
-    tweet posted on X
+```text
+n8n (AI content)
+    →
+Backend API (yeh project)
+    →
+Playwright browser
+    →
+Twitter/X pe tweet live
 ```
 
 ---
 
-## API Reference
+# 3. Features
 
-### `GET /`
+| Feature | Matlab |
+|---------|--------|
+| Auto Tweet Posting | API/n8n se content aaye → Twitter pe post |
+| One-time Login | Session save; baar-baar login nahi |
+| Reply Monitor | Apne tweets pe naye replies dekhna |
+| AI Auto-Reply | OpenAI se jawab → auto post |
+| Queue | Ek time pe ek hi browser job |
+| No Duplicate Replies | Same reply do dafa jawab nahi |
 
-Health check.
+---
+
+# 4. Tech Stack (Short)
+
+| Tool | Role |
+|------|------|
+| Node.js + Express | Backend API |
+| Playwright | Twitter automation |
+| OpenAI | AI replies |
+| n8n | Schedule + content workflow |
+| Railway / Render | Cloud pe 24/7 (optional) |
+
+---
+
+# 5. n8n Setup (Short)
+
+Backend pehle `npm start` se chal raha ho.
+
+| Setting | Value |
+|---------|--------|
+| Method | `POST` |
+| URL (local) | `http://localhost:3000/api/twitter/action` |
+| Timeout | `180000` (3 minutes) |
+
+Body:
 
 ```json
 {
-  "success": true,
-  "message": "Twitter AI Backend Running",
-  "sessionLoaded": true,
-  "endpoint": "POST /api/twitter/action"
+  "task": "CREATE_POST",
+  "content": "Your tweet text here"
 }
 ```
 
-### `GET /health`
+**n8n Cloud** laptop ke `localhost` ko nahi chhoo sakta.  
+Tab Railway/Render URL use karo, masalan:
 
-```json
-{
-  "success": true,
-  "sessionLoaded": true,
-  "queue": { "running": false, "pending": 0 },
-  "replyMonitorEnabled": true
-}
+```text
+https://twitter-ai-agent-production.up.railway.app/api/twitter/action
 ```
 
-### `POST /api/twitter/action`
+---
 
-Main endpoint used by n8n.
+# 6. API (Short)
 
-#### CREATE_POST
+### Health
+
+- `GET /`  
+- `GET /health`
+
+### Post tweet
+
+`POST /api/twitter/action`
 
 ```json
 {
-  "platform": "twitter",
   "task": "CREATE_POST",
   "content": "AI is transforming businesses."
 }
 ```
 
-**Success response:**
+### Reply
+
+```json
+{
+  "task": "REPLY_COMMENT",
+  "content": "Thank you!",
+  "tweetUrl": "https://x.com/user/status/123"
+}
+```
+
+### Success response
 
 ```json
 {
@@ -360,214 +261,60 @@ Main endpoint used by n8n.
 }
 ```
 
-#### REPLY_COMMENT
+---
 
-```json
-{
-  "platform": "twitter",
-  "task": "REPLY_COMMENT",
-  "content": "Thank you for your comment!",
-  "tweetUrl": "https://x.com/user/status/1234567890"
-}
-```
+# 7. Useful Commands
 
-#### Supported Tasks
-
-| Task | Status |
-|------|--------|
-| `CREATE_POST` | ✅ Live |
-| `REPLY_COMMENT` | ✅ Live |
-| `SEND_DM` | 🔜 Planned |
-| `DELETE_POST` | 🔜 Planned |
-
-#### Error Responses
-
-| Error | Code | Meaning |
-|-------|------|---------|
-| `No Twitter session found.` | `NO_SESSION` | Run `npm run login` |
-| `Session expired. Please run npm run login` | `SESSION_EXPIRED` | Re-login required |
-| `Rate limited by Twitter.` | `RATE_LIMITED` | Wait and retry |
-| `Tweet button not found.` | `TWEET_BUTTON_NOT_FOUND` | Twitter UI changed |
-| `Browser crashed...` | `BROWSER_CRASHED` | Playwright / Chromium issue |
+| Command | Kaam |
+|---------|------|
+| `npm install` | Install packages + browser |
+| `npm run setup:browser` | Sirf Chromium dubara |
+| `npm run login` | Twitter login / session |
+| `npm start` | Server start |
+| `npm run export-session` | Session export (cloud ke liye) |
 
 ---
 
-## Render Deployment (Cloud)
+# 8. Folders (Simple)
 
-Render pe file system persist nahi hota — session **env var** mein deni hogi.
-
-### Step 1 — Login Locally First
-
-```bash
-npm run login
-```
-
-### Step 2 — Export Session for Render
-
-```bash
-npm run export-session
-```
-
-Copy the base64 output.
-
-### Step 3 — Render Environment Variables
-
-| Variable | Value |
-|----------|-------|
-| `STORAGE_STATE_BASE64` | paste base64 from export-session |
-| `HEADLESS` | `true` |
-| `OPENAI_API_KEY` | your OpenAI key |
-| `OPENAI_MODEL` | `gpt-4o-mini` |
-| `CHECK_INTERVAL` | `90000` |
-| `REPLY_MONITOR_ENABLED` | `true` |
-| `NODE_VERSION` | `20` |
-
-**Build command:**
-```
-npm install
-```
-
-Chromium installs automatically via `postinstall`. Do **not** use `--with-deps` on Render (requires root).
-
-**Start command:**
-```
-npm start
-```
-
-### Step 4 — Update n8n URL
-
-Change HTTP Request URL from `localhost` to your Render URL:
-
-```
-https://your-app.onrender.com/api/twitter/action
-```
-
-### Session Expired on Render?
-
-1. Run `npm run login` locally again
-2. Run `npm run export-session`
-3. Update `STORAGE_STATE_BASE64` on Render dashboard
-4. Manual Deploy
-
----
-
-## NPM Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm start` | Start the backend server |
-| `npm run login` | Open browser, manual Twitter login, save session |
-| `npm run export-session` | Export session as base64 for Render |
-| `npm run setup:browser` | Install Playwright Chromium |
-| `npm run build` | Install Chromium (for Render build step) |
-
----
-
-## Project Structure
-
-```
-twitter-ai-agent/
-├── server.js                    # Express entry point
-├── package.json
-├── render.yaml                  # Render deploy config
-├── .env.example                 # Environment template
-│
-├── routes/
-│   └── twitter.routes.js        # POST /api/twitter/action
-│
-├── controllers/
-│   └── twitter.controller.js    # Request validation & response
-│
-├── services/
-│   ├── twitter.service.js       # Task routing & validation
-│   ├── playwright.service.js    # Browser automation (post, reply, scan)
-│   ├── queue.service.js         # Serial job queue
-│   ├── replyMonitor.service.js  # Background reply watcher
-│   ├── openai.service.js        # AI reply generation
-│   └── storage.service.js       # Tracked tweets & processed reply IDs
-│
-├── utils/
-│   ├── browser.js               # Chromium launch & login
-│   ├── session.js               # Session file / env loader
-│   ├── config.js                # Central env config
-│   ├── errors.js                # Structured error codes
-│   └── logger.js                # File + console logging
-│
-├── scripts/
-│   ├── login.js                 # npm run login
-│   ├── export-session.js        # npm run export-session
-│   └── setup-browser.js         # npm run setup:browser
-│
-├── storage/
-│   └── storageState.json        # Twitter session (gitignored)
-│
-├── data/
-│   ├── tracked-tweets.json      # Tweets we posted (for reply monitor)
-│   └── processed-replies.json   # Reply IDs already answered
-│
-└── logs/
-    └── twitter-YYYY-MM-DD.log   # Daily structured logs
+```text
+twitter-ai-assistant/
+├── server.js          → App start
+├── .env.example       → Copy karke .env banao
+├── routes/            → API URLs
+├── services/          → Twitter + Playwright logic
+├── scripts/           → login, browser install
+├── storage/           → login session (secret)
+└── .playwright-browsers/ → Chromium (auto)
 ```
 
 ---
 
-## Troubleshooting
+# 9. Cloud (Optional — 24/7)
 
-### `No Twitter session found.`
+Laptop band ho to bhi post chahiye:
 
-```bash
-npm run login
-npm start
-```
-
-### `Session expired. Please run npm run login`
-
-Session cookies expired. Re-login:
-
-```bash
-npm run login
-```
-
-If on Render, also run `npm run export-session` and update `STORAGE_STATE_BASE64`.
-
-### `timeout of 30000ms exceeded` in n8n
-
-This is **n8n's HTTP timeout**, not a backend crash. Playwright on Render needs more time.
-
-**Fix in n8n HTTP Request node:**
-- Open **Options** → **Timeout**
-- Set to **`180000`** (3 minutes)
-
-Also wake Render before posting (optional):
-```
-GET https://your-app.onrender.com/health
-```
-then run the CREATE_POST request.
-
-### n8n cannot reach localhost
-
-- n8n cloud → use **ngrok** or deploy to **Render**
-- n8n self-hosted on same machine → `http://localhost:3000` works
-
-### Chromium not found
-
-```bash
-npm run setup:browser
-```
-
-### Reply monitor not starting
-
-Check `.env`:
-- `OPENAI_API_KEY` must be set
-- `REPLY_MONITOR_ENABLED=true`
-- Session must exist (`npm run login`)
-
-### Tweet posts but no tweetId in response
-
-Twitter sometimes doesn't return ID in GraphQL response. Tweet still posts — check your profile.
+1. Local: `npm run login` → `npm run export-session`  
+2. Railway pe deploy (repo mein `Dockerfile` hai)  
+3. Env: `STORAGE_STATE_BASE64`, `HEADLESS=true`, `OPENAI_API_KEY`  
+4. n8n mein Railway URL + `/api/twitter/action`
 
 ---
 
-## License
+# 10. Common Problems
+
+| Error | Fix |
+|-------|-----|
+| `node` not found | Node install + terminal restart |
+| No session | `npm run login` |
+| Session expired | Phir `npm run login` |
+| Browser missing | `npm run setup:browser` |
+| n8n `POST /` not found | URL mein `/api/twitter/action` lagao |
+| n8n unreachable | Cloud n8n + localhost = galat; cloud URL use karo |
+| Timeout 30s | n8n timeout `180000` |
+
+---
+
+# License
 
 ISC
