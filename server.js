@@ -46,6 +46,17 @@ app.get("/health", (req, res) => {
 
 app.use("/api/twitter", twitterRoutes);
 
+// Aliases — n8n often hits a shorter/wrong path and gets 404.
+app.use("/twitter", twitterRoutes);
+app.post("/action", (req, res, next) => {
+  req.url = "/action";
+  twitterRoutes(req, res, next);
+});
+app.post("/api/action", (req, res, next) => {
+  req.url = "/action";
+  twitterRoutes(req, res, next);
+});
+
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
@@ -54,6 +65,9 @@ app.use((req, res) => {
       "GET /",
       "GET /health",
       "POST /api/twitter/action",
+      "POST /twitter/action",
+      "POST /action",
+      "POST /api/action",
     ],
   });
 });

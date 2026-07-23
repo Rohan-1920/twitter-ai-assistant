@@ -285,6 +285,18 @@ async function openComposer(page) {
   }
 }
 
+async function getComposerText(page) {
+  return page
+    .locator('[data-testid="tweetTextarea_0"]')
+    .first()
+    .innerText()
+    .catch(() => "");
+}
+
+/**
+ * Type into Twitter's Lexical/Draft contenteditable so the Post button enables.
+ * Real key events (keyboard.type) are the most reliable way to enable Post.
+ */
 async function pasteIntoTextarea(page, content) {
   let textarea;
 
@@ -309,94 +321,244 @@ async function pasteIntoTextarea(page, content) {
     throw err;
   }
 
-  await textarea.click();
-  await textarea.focus();
+  const preview = content.slice(0, Math.min(20, content.length));
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-  // Headless Render: clipboard paste is unreliable — type directly.
-  if (isLinuxOrRender()) {
-    await page.keyboard.press("Control+A");
+  async function clearComposer() {
+    await textarea.click({ clickCount: 3 }).catch(() => textarea.click());
+    await page.keyboard.press(`${mod}+A`);
     await page.keyboard.press("Backspace");
-    await textarea.fill(content);
-
-    const filled = await textarea.innerText().catch(() => "");
-    if (!filled || !filled.includes(content.slice(0, Math.min(12, content.length)))) {
-      await textarea.click();
-      await page.keyboard.insertText(content);
-    }
-    return;
+    await page.waitForTimeout(200);
   }
 
-  const mod = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.press(`${mod}+A`);
-  await page.keyboard.press("Backspace");
+  async function textLooksFilled() {
+    const filled = (await getComposerText(page)).replace(/\u200B/g, "").trim();
+    return Boolean(filled) && (!preview || filled.includes(preview));
+  }
 
+  // Strategy 1: real key events (best at enabling the Post button)
+  await clearComposer();
+  await textarea.click();
+  await page.keyboard.type(content, { delay: 12 });
+  await page.waitForTimeout(500);
+
+  if (await textLooksFilled()) return;
+
+  // Strategy 2: insertText (faster, still works on many Lexical builds)
+  log({ event: "COMPOSER_RETRY", strategy: "keyboard.insertText" });
+  await clearComposer();
+  await textarea.click();
+  await page.keyboard.insertText(content);
+  await page.waitForTimeout(400);
+
+  if (await textLooksFilled()) return;
+
+  // Strategy 3: clipboard paste
+  log({ event: "COMPOSER_RETRY", strategy: "clipboard.paste" });
+  await clearComposer();
+  await textarea.click();
   try {
     await page.evaluate(async (text) => {
       await navigator.clipboard.writeText(text);
     }, content);
     await page.keyboard.press(`${mod}+V`);
+    await page.waitForTimeout(500);
   } catch {
-    await page.keyboard.insertText(content);
+    // clipboard may fail in some environments
   }
 
-  const preview = content.slice(0, Math.min(24, content.length));
-  const filled = await page
-    .locator('[data-testid="tweetTextarea_0"]')
-    .first()
-    .innerText()
-    .catch(() => "");
+  if (await textLooksFilled()) return;
 
-  if (!filled || (preview && !filled.includes(preview))) {
-    await textarea.fill(content);
-  }
-}
-
-async function clickPostButton(page) {
-  let submitButton;
-
-  try {
-    submitButton = await waitForSelector(
-      page,
-      [
-        '[data-testid="tweetButtonInline"]',
-        '[data-testid="tweetButton"]',
-        'button[data-testid="tweetButtonInline"]',
-        'button[data-testid="tweetButton"]',
-        'div[role="button"][data-testid="tweetButtonInline"]',
-        'div[role="button"][data-testid="tweetButton"]',
-      ],
-      {
-        errorCode: ERROR_CODES.TWEET_BUTTON_NOT_FOUND,
-        errorMessage: "Tweet button not found.",
-        status: 502,
-      }
+  // Strategy 4: execCommand insertText inside the editor
+  log({ event: "COMPOSER_RETRY", strategy: "execCommand" });
+  await clearComposer();
+  await textarea.click();
+  await page.evaluate((text) => {
+    const root =
+      document.querySelector('[data-testid="tweetTextarea_0"]') ||
+      document.querySelector('div[role="textbox"][contenteditable="true"]');
+    if (!root) return;
+    root.focus();
+    const editable =
+      root.getAttribute("contenteditable") === "true"
+        ? root
+        : root.querySelector('[contenteditable="true"]') || root;
+    editable.focus();
+    document.execCommand("selectAll", false);
+    document.execCommand("insertText", false, text);
+    editable.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        data: text,
+        inputType: "insertText",
+      })
     );
-  } catch (err) {
-    await assertSessionValid(page);
-    throw err;
-  }
+  }, content);
+  await page.waitForTimeout(500);
 
-  const deadline = Date.now() + (isLinuxOrRender() ? 20000 : 12000);
-  while (Date.now() < deadline) {
-    const ariaDisabled = await submitButton.getAttribute("aria-disabled");
-    const disabled = await submitButton.isDisabled().catch(() => false);
-    if (ariaDisabled !== "true" && !disabled) break;
-    await page.waitForTimeout(200);
-  }
+  if (await textLooksFilled()) return;
 
-  const ariaDisabled = await submitButton.getAttribute("aria-disabled");
-  if (ariaDisabled === "true") {
-    await captureFailureDebug(page, "post-button-disabled");
+  // Strategy 5: fill() last resort
+  log({ event: "COMPOSER_RETRY", strategy: "locator.fill" });
+  await clearComposer();
+  await textarea.fill(content);
+  await page.waitForTimeout(400);
+
+  if (!(await textLooksFilled())) {
     throw new AppError(
-      ERROR_CODES.TWEET_BUTTON_NOT_FOUND,
+      ERROR_CODES.TWITTER_UI_CHANGED,
       withPageContext(
-        "Tweet Post button is disabled — text may not have been entered.",
+        "Could not enter tweet text into composer. Post button stays disabled.",
         page
       ),
       502
     );
   }
+}
 
+/** True when a Post/Tweet control is clickable. */
+async function isPostButtonEnabled(locator) {
+  if (!(await locator.isVisible().catch(() => false))) return false;
+  const ariaDisabled = await locator.getAttribute("aria-disabled");
+  if (ariaDisabled === "true") return false;
+  const disabled = await locator.isDisabled().catch(() => false);
+  return !disabled;
+}
+
+/**
+ * Prefer compose-modal tweetButton, then inline, then role/name fallbacks.
+ * Always pick an enabled control when one exists.
+ */
+async function findPostButton(page, options = {}) {
+  const timeout =
+    options.timeout ?? (isLinuxOrRender() ? 25000 : 15000);
+  const testIdSelectors = [
+    // /compose/post uses tweetButton — check it before the home inline button
+    '[data-testid="tweetButton"]',
+    '[data-testid="tweetButtonInline"]',
+    'button[data-testid="tweetButton"]',
+    'button[data-testid="tweetButtonInline"]',
+    'div[role="button"][data-testid="tweetButton"]',
+    'div[role="button"][data-testid="tweetButtonInline"]',
+  ];
+
+  const deadline = Date.now() + timeout;
+  let firstVisible = null;
+
+  while (Date.now() < deadline) {
+    for (const selector of testIdSelectors) {
+      const candidates = page.locator(selector);
+      const count = await candidates.count().catch(() => 0);
+      for (let i = 0; i < count; i++) {
+        const btn = candidates.nth(i);
+        if (!(await btn.isVisible().catch(() => false))) continue;
+        if (!firstVisible) firstVisible = btn;
+        if (await isPostButtonEnabled(btn)) return btn;
+      }
+    }
+
+    // Toolbar Post label inside the composer only (avoid SideNav "Post")
+    const toolbarPost = page.locator(
+      '[data-testid="toolBar"] [role="button"]:has-text("Post"), [data-testid="toolBar"] button:has-text("Post"), [data-testid="toolBar"] [role="button"]:has-text("Tweet"), [data-testid="toolBar"] button:has-text("Tweet")'
+    );
+    const toolbarCount = await toolbarPost.count().catch(() => 0);
+    for (let i = 0; i < toolbarCount; i++) {
+      const btn = toolbarPost.nth(i);
+      if (!(await btn.isVisible().catch(() => false))) continue;
+      if (!firstVisible) firstVisible = btn;
+      if (await isPostButtonEnabled(btn)) return btn;
+    }
+
+    await page.waitForTimeout(250);
+  }
+
+  if (firstVisible) return firstVisible;
+
+  throw new AppError(
+    ERROR_CODES.TWEET_BUTTON_NOT_FOUND,
+    withPageContext("Tweet button not found.", page),
+    502
+  );
+}
+
+async function clickPostButton(page, content = null) {
+  let submitButton;
+
+  try {
+    submitButton = await findPostButton(page);
+  } catch (err) {
+    await assertSessionValid(page);
+    throw err;
+  }
+
+  // If button stays disabled, re-enter text then look for an enabled button again.
+  let enabled = await isPostButtonEnabled(submitButton);
+  for (let attempt = 0; attempt < 3 && !enabled; attempt++) {
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      submitButton = await findPostButton(page, { timeout: 800 }).catch(
+        () => submitButton
+      );
+      if (await isPostButtonEnabled(submitButton)) {
+        enabled = true;
+        break;
+      }
+      await page.waitForTimeout(250);
+    }
+    if (enabled) break;
+
+    const leftover = (await getComposerText(page)).replace(/\u200B/g, "").trim();
+    if (!leftover && content) {
+      log({ event: "POST_BUTTON_RETRY", reason: "composer empty, full retype" });
+      await pasteIntoTextarea(page, content);
+    } else if (!leftover) {
+      log({ event: "POST_BUTTON_RETRY", reason: "composer empty, nudge" });
+      const box = page.locator('[data-testid="tweetTextarea_0"]').first();
+      await box.click().catch(() => {});
+      await page.keyboard.type("x", { delay: 20 });
+      await page.keyboard.press("Backspace");
+    } else if (content && attempt === 0) {
+      // Text visible in DOM but React may not have dirty-state — full retype.
+      log({ event: "POST_BUTTON_RETRY", reason: "text present, full retype" });
+      await pasteIntoTextarea(page, content);
+    } else {
+      log({ event: "POST_BUTTON_RETRY", reason: "text present, re-trigger input" });
+      await page.locator('[data-testid="tweetTextarea_0"]').first().click();
+      await page.keyboard.press("End");
+      await page.keyboard.type(" ", { delay: 15 });
+      await page.keyboard.press("Backspace");
+    }
+  }
+
+  submitButton = await findPostButton(page, { timeout: 2000 }).catch(
+    () => submitButton
+  );
+  enabled = await isPostButtonEnabled(submitButton);
+
+  if (!enabled) {
+    // Last resort: Twitter's Post shortcut (caller must already be listening for CreateTweet).
+    const leftover = (await getComposerText(page)).replace(/\u200B/g, "").trim();
+    if (!leftover) {
+      await captureFailureDebug(page, "post-button-disabled");
+      throw new AppError(
+        ERROR_CODES.TWEET_BUTTON_NOT_FOUND,
+        withPageContext(
+          "Tweet Post button is disabled — text may not have been entered.",
+          page
+        ),
+        502
+      );
+    }
+
+    log({ event: "POST_BUTTON_FALLBACK", strategy: "Ctrl/Meta+Enter" });
+    const box = page.locator('[data-testid="tweetTextarea_0"]').first();
+    await box.click().catch(() => {});
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${mod}+Enter`);
+    return;
+  }
+
+  await submitButton.scrollIntoViewIfNeeded().catch(() => {});
   await submitButton.click({ force: true }).catch(async () => {
     await submitButton.click();
   });
@@ -558,40 +720,28 @@ async function waitForPostSuccess(page) {
 
 /** CREATE_POST — fully automated publish using saved session. */
 async function createPost(page, content) {
-  // On Render headless, go straight to compose URL (more reliable than home timeline).
-  if (isLinuxOrRender()) {
-    await navigateTo(page, COMPOSE_URL);
-    await waitForSelector(
-      page,
-      [
-        '[data-testid="tweetTextarea_0"]',
-        'div[contenteditable="true"][role="textbox"]',
-        'div[aria-label="Post text"]',
-      ],
-      {
-        errorCode: ERROR_CODES.TWITTER_UI_CHANGED,
-        errorMessage:
-          "Twitter compose page did not load. Session may be expired — run npm run login.",
-      }
-    );
-  } else {
-    await navigateTo(page, TWITTER_HOME);
-    try {
-      await openComposer(page);
-    } catch (err) {
-      log({
-        event: "COMPOSER_FALLBACK",
-        message: "Home composer failed, trying /compose/post",
-        error: err.message,
-      });
-      await navigateTo(page, COMPOSE_URL);
-      await dismissOverlays(page);
+  // Compose URL is more reliable than home timeline for automation.
+  await navigateTo(page, COMPOSE_URL);
+  await dismissOverlays(page);
+  await waitForSelector(
+    page,
+    [
+      '[data-testid="tweetTextarea_0"]',
+      'div[contenteditable="true"][role="textbox"]',
+      'div[aria-label="Post text"]',
+    ],
+    {
+      errorCode: ERROR_CODES.TWITTER_UI_CHANGED,
+      errorMessage:
+        "Twitter compose page did not load. Session may be expired — run npm run login.",
     }
-  }
+  );
 
   await pasteIntoTextarea(page, content);
-  await clickPostButton(page);
-  return waitForPostSuccess(page);
+  // Listen before click so a fast CreateTweet response is not missed.
+  const posted = waitForPostSuccess(page);
+  await clickPostButton(page, content);
+  return posted;
 }
 
 async function replyToComment(page, tweetUrl, content) {
@@ -608,8 +758,9 @@ async function replyToComment(page, tweetUrl, content) {
 
   await replyButton.click();
   await pasteIntoTextarea(page, content);
-  await clickPostButton(page);
-  return waitForPostSuccess(page);
+  const posted = waitForPostSuccess(page);
+  await clickPostButton(page, content);
+  return posted;
 }
 
 /**

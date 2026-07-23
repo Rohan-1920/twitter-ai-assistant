@@ -18,13 +18,15 @@ function getProjectBrowsersPath() {
 /**
  * Configure PLAYWRIGHT_BROWSERS_PATH before require("playwright").
  *
- * Render/Linux → project/.playwright-browsers (bundled with deploy)
- * Windows local  → default Playwright cache (strip bad D:\ paths from .env)
+ * Local + Render/Linux → project/.playwright-browsers
+ * This keeps all Playwright browser files inside the repo folder, so if the
+ * repo is on D: then browsers also stay on D:.
  */
 function configurePlaywrightEnv() {
+  fs.mkdirSync(PROJECT_BROWSERS_DIR, { recursive: true });
+  process.env.PLAYWRIGHT_BROWSERS_PATH = PROJECT_BROWSERS_DIR;
+
   if (isLinuxOrRender()) {
-    fs.mkdirSync(PROJECT_BROWSERS_DIR, { recursive: true });
-    process.env.PLAYWRIGHT_BROWSERS_PATH = PROJECT_BROWSERS_DIR;
     // Servers have no display — always headless on Render/Linux.
     process.env.HEADLESS = "true";
     console.log(
@@ -34,13 +36,7 @@ function configurePlaywrightEnv() {
     return;
   }
 
-  const existing = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  if (existing && (/^[A-Za-z]:[\\/]/.test(existing) || existing.includes("\\"))) {
-    console.warn(
-      `[playwright] Ignoring invalid PLAYWRIGHT_BROWSERS_PATH: ${existing}`
-    );
-    delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-  }
+  console.log(`[playwright] Browser path (local): ${PROJECT_BROWSERS_DIR}`);
 }
 
 /**

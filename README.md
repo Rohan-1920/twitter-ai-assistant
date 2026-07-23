@@ -107,7 +107,13 @@ To install manually:
 npm run setup:browser
 ```
 
-Playwright uses its **bundled Chromium** from the default cache — no custom paths needed.
+Playwright stores Chromium inside the project folder:
+
+```text
+d:\twitter-ai-agent\.playwright-browsers
+```
+
+So if your project is on **D drive**, browser files also stay on **D drive**.
 
 ### Step 3 — Environment File
 
@@ -192,6 +198,28 @@ If n8n is **cloud-hosted** (n8n.io), your laptop backend is not reachable direct
 
 - **ngrok** — `ngrok http 3000` → use the public URL
 - **Render deploy** — deploy backend to Render (see below)
+
+### D Drive Note
+
+If you do not want to use **C drive** at all:
+
+1. Keep this project in `D:\twitter-ai-agent`
+2. Playwright browsers will stay in:
+   `D:\twitter-ai-agent\.playwright-browsers`
+3. Twitter session stays in:
+   `D:\twitter-ai-agent\storage\storageState.json`
+4. Logs stay in:
+   `D:\twitter-ai-agent\logs\`
+5. For `ngrok`, do **not** use the Winget-installed version on `C:`.  
+   Instead, download the portable `ngrok.exe` and place it somewhere on `D:`, for example:
+   `D:\tools\ngrok\ngrok.exe`
+
+Then run it like this:
+
+```powershell
+& "D:\tools\ngrok\ngrok.exe" config add-authtoken YOUR_TOKEN
+& "D:\tools\ngrok\ngrok.exe" http 3000
+```
 
 ### Step 2 — Create n8n Workflow
 
