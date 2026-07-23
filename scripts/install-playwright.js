@@ -1,18 +1,34 @@
 /**
  * Install Playwright Chromium using the default bundled browser cache.
  *
- * Render/CI: chromium only (no --with-deps — requires root/su which fails on Render).
- * Local Linux with deps: PLAYWRIGHT_INSTALL_DEPS=true npm run setup:browser
+ * - Docker /ms-playwright → skip (image already has browsers + libs)
+ * - Railway (non-Docker) → install with --with-deps when possible
+ * - Render/CI → chromium only (no --with-deps)
+ * - Local: PLAYWRIGHT_INSTALL_DEPS=true for --with-deps
  */
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 require("../utils/playwright-env");
 
+const fs = require("fs");
 const { spawnSync } = require("child_process");
 
+if (
+  process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === "1" ||
+  fs.existsSync("/ms-playwright")
+) {
+  console.log(
+    "Skipping Playwright browser download (Docker image /ms-playwright)."
+  );
+  process.exit(0);
+}
+
+const onRailway = Boolean(
+  process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID
+);
+
 const useSystemDeps =
-  process.env.PLAYWRIGHT_INSTALL_DEPS === "true" &&
   !process.env.RENDER &&
-  !process.env.CI;
+  (process.env.PLAYWRIGHT_INSTALL_DEPS === "true" || onRailway);
 
 const args = ["playwright", "install"];
 
@@ -24,11 +40,13 @@ args.push("chromium");
 
 const mode = process.env.RENDER
   ? "render"
-  : process.env.CI
-    ? "ci"
-    : useSystemDeps
-      ? "local+deps"
-      : "local";
+  : onRailway
+    ? "railway+deps"
+    : process.env.CI
+      ? "ci"
+      : useSystemDeps
+        ? "local+deps"
+        : "local";
 
 console.log(`Installing Playwright Chromium (${mode})...`);
 

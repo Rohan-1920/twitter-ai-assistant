@@ -16,6 +16,13 @@ if (isChromiumInstalled()) {
   process.exit(0);
 }
 
+if (process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === "1") {
+  console.error(
+    "[playwright] Chromium missing but PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1."
+  );
+  process.exit(1);
+}
+
 console.warn("[playwright] Chromium not found — installing now...");
 
 if (isLinuxOrRender()) {

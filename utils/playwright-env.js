@@ -18,11 +18,20 @@ function getProjectBrowsersPath() {
 /**
  * Configure PLAYWRIGHT_BROWSERS_PATH before require("playwright").
  *
- * Local + Render/Linux → project/.playwright-browsers
- * This keeps all Playwright browser files inside the repo folder, so if the
- * repo is on D: then browsers also stay on D:.
+ * Playwright Docker image (/ms-playwright) → use image browsers + system libs
+ * Otherwise → project/.playwright-browsers (Render / local)
  */
 function configurePlaywrightEnv() {
+  const msPlaywright = "/ms-playwright";
+  if (fs.existsSync(msPlaywright)) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = msPlaywright;
+    if (isLinuxOrRender()) {
+      process.env.HEADLESS = "true";
+    }
+    console.log(`[playwright] Browser path (docker image): ${msPlaywright}`);
+    return;
+  }
+
   fs.mkdirSync(PROJECT_BROWSERS_DIR, { recursive: true });
   process.env.PLAYWRIGHT_BROWSERS_PATH = PROJECT_BROWSERS_DIR;
 
