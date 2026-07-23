@@ -36,11 +36,25 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
+  const fs = require("fs");
+  const browserPath = process.env.PLAYWRIGHT_BROWSERS_PATH || null;
+  const dockerBrowsers = fs.existsSync("/ms-playwright");
+  const hasGlib = [
+    "/usr/lib/x86_64-linux-gnu/libglib-2.0.so.0",
+    "/lib/x86_64-linux-gnu/libglib-2.0.so.0",
+  ].some((p) => fs.existsSync(p));
+
   return res.status(200).json({
     success: true,
     sessionLoaded: hasStorageState(),
     queue: queueService.getStatus(),
     replyMonitorEnabled: config.replyMonitorEnabled,
+    browser: {
+      path: browserPath,
+      dockerImageBrowsers: dockerBrowsers,
+      libglib: hasGlib,
+      ready: dockerBrowsers || hasGlib,
+    },
   });
 });
 

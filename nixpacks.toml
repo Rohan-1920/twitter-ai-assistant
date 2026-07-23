@@ -4,6 +4,7 @@
 [phases.setup]
 aptPkgs = [
   "libglib2.0-0",
+  "libglib2.0-0t64",
   "libnss3",
   "libnspr4",
   "libatk1.0-0",
@@ -23,6 +24,7 @@ aptPkgs = [
   "libpango-1.0-0",
   "libcairo2",
   "libasound2",
+  "libasound2t64",
   "libatspi2.0-0",
   "libxshmfence1",
   "libgtk-3-0",
