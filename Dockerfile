@@ -6,18 +6,21 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HEADLESS=true \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    NPM_CONFIG_ENGINE_STRICT=false
 
 COPY package.json package-lock.json* ./
 
-# Image may ship Node 22/24; our engines field says 20.x — ignore that here.
-RUN npm install --omit=dev --ignore-engines
+# --ignore-scripts: postinstall needs ./scripts which are not copied yet.
+# Browsers already exist in this image under /ms-playwright.
+RUN npm install --omit=dev --ignore-scripts
 
 COPY . .
 
-# Never use host/project browser cache inside the container.
+# Never use a project-local browser cache inside the container.
 RUN rm -rf /app/.playwright-browsers
 
 EXPOSE 3000
 
+# Skip ensure-* scripts — image already has Chromium + system libs.
 CMD ["node", "server.js"]
